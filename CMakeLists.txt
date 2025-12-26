@@ -4,6 +4,7 @@ target_sources(framebuffer INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}/src/color.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/framebuffer.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/st7796.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/roboto_32.cpp
 )
 
 target_include_directories(framebuffer INTERFACE 
@@ -16,3 +17,4 @@ target_link_libraries(framebuffer INTERFACE
     hardware_spi
     misc
 )
+
