@@ -1,0 +1,96 @@
+
+MADCTL - Panel Rotations and Coordinates
+
+Notes:
+  ML and MH might only matter when using scrolling
+  ML and MH change the orientations below but none are new
+  RGB might be a property of the panel used
+
+Portrait 320 wide x 480 tall (wide bezel at bottom), MV=0:
+  MY MX
+   0  0: (0,0) is top right, cartesian/180
+   1  0: (0,0) is bottom right, graphics/180
+   0  1: (0,0) is top left, graphics
+   1  1: (0,0) is bottom left, cartesian
+
+Landscape 480 wide x 320 tall (wide bezel to left), MV=1:
+  MY MX
+   0  0: (0,0) is bottom right, graphics/180
+   1  0: (0,0) is bottom left, cartesian
+   0  1: (0,0) is top right, cartesian/180
+   1  1: (0,0) is top left, graphics
+
+ASCII-graphics show:
+  PCB with mounting holes ('O')
+  where J2 header shows ('.' or ':')
+  wider side of glass panel bezel
+
+The eight combinations can be interpreted as four rotations of the screen, and
+if 'x' or 'column' always increases left to right, the vertical coordinate can
+be either 'y', bottom to top, or 'row', top to bottom.
+
+Portrait (MV=0)
+
+"Cartesian" coordinates; (x, y) = (0, 0) is lower-left corner
++---------------------+        +---------------------+
+| O                 O |        | O   ...........   O |
++---------------------+        +---------------------+
+| +-----------------+ |        |                     |
+| |    (x=319,y=479)| |        | +-----------------+ |
+| |                 | |        | |    (x=319,y=479)| |
+| |                 | |        | |                 | |
+| |                 | |        | |                 | |
+| |    MY=1 MX=1    | |        | |                 | |
+| |                 | |        | |    MY=0 MX=0    | |
+| |                 | |        | |                 | |
+| |                 | |        | |                 | |
+| |(x=0,y=0)        | |        | |                 | |
+| +-----------------+ |        | |(x=0,y=0)        | |
+|                     |        | +-----------------+ |
++---------------------+        +---------------------+
+| O   ...........   O |        | O                 O |
++---------------------+        +---------------------+
+
+"Graphical" coordinates; (r, c) = (0, 0) is upper-left corner
++---------------------+        +---------------------+
+| O                 O |        | O   ...........   O |
++---------------------+        +---------------------+
+| +-----------------+ |        |                     |
+| |(r=0,c=0)        | |        | +-----------------+ |
+| |                 | |        | |(r=0,c=0)        | |
+| |                 | |        | |                 | |
+| |                 | |        | |                 | |
+| |    MY=0 MX=1    | |        | |                 | |
+| |                 | |        | |    MY=1 MX=0    | |
+| |                 | |        | |                 | |
+| |                 | |        | |                 | |
+| |    (r=479,c=319)| |        | |                 | |
+| +-----------------+ |        | |    (r=479,c=319)| |
+|                     |        | +-----------------+ |
++---------------------+        +---------------------+
+| O   ...........   O |        | O                 O |
++---------------------+        +---------------------+
+
+Landscape (MV=1)
+
+"Cartesian" coordinates; (x, y) = (0, 0) is lower-left corner
++---+------------------------+---+        +---+------------------------+---+
+| O |    +-----------------+ | O |        | O | +-----------------+    | O |
+|:  |    |    (x=479,y=319)| |   |        |   | |    (x=479,y=319)|    |  :|
+|:  |    |                 | |   |        |   | |                 |    |  :|
+|:  |    |    MY=1 MX=0    | |   |        |   | |    MY=0 MX=1    |    |  :|
+|:  |    |                 | |   |        |   | |                 |    |  :|
+|:  |    |(x=0,y=0)        | |   |        |   | |(x=0,y=0)        |    |  :|
+| O |    +-----------------+ | O |        | O | +-----------------+    | O |
++---+------------------------+---+        +---+------------------------+---+
+
+"Graphical" coordinates; (r, c) = (0, 0) is upper-left corner
++---+------------------------+---+        +---+------------------------+---+
+| O |    +-----------------+ | O |        | O | +-----------------+    | O |
+|:  |    |(r=0,c=0)        | |   |        |   | |(r=0,c=0)        |    |  :|
+|:  |    |                 | |   |        |   | |                 |    |  :|
+|:  |    |    MY=1 MX=1    | |   |        |   | |    MY=0 MX=0    |    |  :|
+|:  |    |                 | |   |        |   | |                 |    |  :|
+|:  |    |    (r=319,c=479)| |   |        |   | |    (r=319,c=479)|    |  :|
+| O |    +-----------------+ | O |        | O | +-----------------+    | O |
++---+------------------------+---+        +---+------------------------+---+
