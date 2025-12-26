@@ -18,3 +18,4 @@ target_link_libraries(framebuffer INTERFACE
     misc
 )
 
+add_subdirectory(test)
