@@ -2,8 +2,8 @@
 
 #include <cstdint>
 //
-#include "hardware/gpio.h"
 #include "hardware/dma.h"
+#include "hardware/gpio.h"
 #include "hardware/spi.h"
 #include "pico/stdlib.h"
 #include "xassert.h"
@@ -22,8 +22,9 @@ class St7796 : public Framebuffer
 public:
 
     // baud normally 15'000'000
-    St7796(spi_inst_t *spi, int miso_pin, int mosi_pin, int clk_pin, int cs_pin, int baud,
-           int cd_pin, int rst_pin, int bk_pin, void *work=nullptr, int work_bytes=0);
+    St7796(spi_inst_t *spi, int miso_pin, int mosi_pin, int clk_pin, int cs_pin,
+           int baud, int cd_pin, int rst_pin, int bk_pin, void *work = nullptr,
+           int work_bytes = 0);
 
     virtual ~St7796();
 
@@ -62,6 +63,10 @@ public:
 
     virtual void fill_rect(int h, int v, int wid, int hgt,
                            const Color c) override;
+
+    // write array of pixels to screen
+    void write(int h, int v,                  // where on screen to write
+               const Pixel565 *px, int ph, int pv); // pixel array
 
     // print character to screen
     virtual void print(int h, int v, char c, const Font &font, //

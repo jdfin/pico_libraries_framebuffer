@@ -30,24 +30,28 @@ class Pixel565
 
 public:
 
-    Pixel565(Color c = Color::black) :
+    constexpr Pixel565() : _pixel(0) // black
+    {
+    }
+
+    Pixel565(Color c) :
         _pixel(color_to_uint16(c))
     {
     }
 
     const uint8_t *p_raw() const { return (const uint8_t *)(&_pixel); }
 
-    Pixel565 &operator=(const Color &c)
+    constexpr Pixel565 &operator=(const Color &c)
     {
         _pixel = color_to_uint16(c);
         return *this;
     }
 
-private:
+//private:
 
     uint16_t _pixel;
 
-    uint16_t color_to_uint16(const Color &c)
+    static constexpr uint16_t color_to_uint16(const Color &c)
     {
         return ((uint16_t(c.g()) << 11) & 0xe000) |
                ((uint16_t(c.b()) << 5) & 0x1f00) |

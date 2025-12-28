@@ -11,6 +11,7 @@
 #include "pico/stdio_usb.h"
 #include "pico/stdlib.h"
 #include "roboto_32.h"
+#include "util.h"
 
 // Pico:
 //
@@ -71,6 +72,7 @@ static void print_string_1(Framebuffer &fb);
 static void print_string_2(Framebuffer &fb);
 static void print_string_3(Framebuffer &fb);
 static void print_string_4(Framebuffer &fb);
+static void test_a(St7796 &st7796);
 
 static const int work_bytes = 128;
 static uint8_t work[work_bytes];
@@ -82,7 +84,7 @@ static void reinit_screen(St7796 &lcd)
     lcd.rotation(St7796::Rotation::left);
 
     // fill with black
-    lcd.fill_rect(0, 0, lcd.width(), lcd.height(), Color::black);
+    lcd.fill_rect(0, 0, lcd.width(), lcd.height(), Color::black());
 }
 
 
@@ -90,7 +92,7 @@ int main()
 {
     stdio_init_all();
 
-    //while (!stdio_usb_connected()) tight_loop_contents();
+    while (!stdio_usb_connected()) tight_loop_contents();
 
     St7796 lcd(spi0, spi_miso_pin, spi_mosi_pin, spi_clk_pin, spi_cs_pin,
                spi_baud, lcd_cd_pin, lcd_rst_pin, lcd_led_pin, work,
@@ -111,8 +113,7 @@ int main()
 
     do {
 
-        rotations(lcd);
-
+        //rotations(lcd);
         //corner_pixels(lcd);
         //corner_squares(lcd);
         //line_1(lcd);
@@ -129,6 +130,9 @@ int main()
         //print_string_2(lcd);
         //print_string_3(lcd);
         //print_string_4(lcd);
+        test_a(lcd);
+        sleep_ms(100);
+        break;
 
     } while (true);
 
@@ -140,10 +144,10 @@ static void mark_origin(Framebuffer &fb, const char *label, const Color c)
 {
     fb.line(0, 0, fb.width() / 2 - 1, 0, c);
     fb.line(0, 1, 0, fb.height() / 2 - 1, c);
-    fb.print(1, 1, label, font, c, Color::black);
+    fb.print(1, 1, label, font, c, Color::black());
     char str[32];
     sprintf(str, "%dw x %dh", fb.width(), fb.height());
-    fb.print(1, 1 + font.height(), str, font, c, Color::black);
+    fb.print(1, 1 + font.height(), str, font, c, Color::black());
 }
 
 
@@ -153,23 +157,23 @@ static void rotations(St7796 &lcd)
     const uint32_t delay_ms = 2000;
     Framebuffer &fb = lcd;
 
-    fb.fill_rect(0, 0, fb.width(), fb.height(), Color::black);
+    fb.fill_rect(0, 0, fb.width(), fb.height(), Color::black());
     sleep_ms(delay_ms);
 
     lcd.rotation(St7796::Rotation::bottom);
-    mark_origin(fb, "Rotation::bottom", Color::red);
+    mark_origin(fb, "Rotation::bottom", Color::red());
     sleep_ms(delay_ms);
 
     lcd.rotation(St7796::Rotation::left);
-    mark_origin(lcd, "Rotation::left", Color::green);
+    mark_origin(lcd, "Rotation::left", Color::green());
     sleep_ms(delay_ms);
 
     lcd.rotation(St7796::Rotation::top);
-    mark_origin(lcd, "Rotation::top", Color::blue);
+    mark_origin(lcd, "Rotation::top", Color::blue());
     sleep_ms(delay_ms);
 
     lcd.rotation(St7796::Rotation::right);
-    mark_origin(lcd, "Rotation::right", Color::white);
+    mark_origin(lcd, "Rotation::right", Color::white());
     sleep_ms(delay_ms);
 }
 
@@ -177,7 +181,7 @@ static void rotations(St7796 &lcd)
 [[maybe_unused]]
 static void corner_pixels(Framebuffer &fb)
 {
-    const Color c = Color::white;
+    const Color c = Color::white();
     fb.pixel(0, 0, c);
     fb.pixel(0, fb.height() - 1, c);
     fb.pixel(fb.width() - 1, 0, c);
@@ -190,10 +194,10 @@ static void corner_squares(Framebuffer &fb, int size)
 {
     for (int i = 0; i < size; i++) {
         for (int j = 0; j < size; j++) {
-            fb.pixel(i, j, Color::red);
-            fb.pixel(i, fb.height() - 1 - j, Color::green);
-            fb.pixel(fb.width() - 1 - i, j, Color::blue);
-            fb.pixel(fb.width() - 1 - i, fb.height() - 1 - j, Color::white);
+            fb.pixel(i, j, Color::red());
+            fb.pixel(i, fb.height() - 1 - j, Color::green());
+            fb.pixel(fb.width() - 1 - i, j, Color::blue());
+            fb.pixel(fb.width() - 1 - i, fb.height() - 1 - j, Color::white());
         }
     }
 }
@@ -202,7 +206,7 @@ static void corner_squares(Framebuffer &fb, int size)
 [[maybe_unused]]
 static void line_1(Framebuffer &fb)
 {
-    const Color c = Color::white;
+    const Color c = Color::white();
     int w1 = fb.width() - 1;
     int h1 = fb.height() - 1;
     fb.line(100, 100, 0, 0, c);
@@ -216,7 +220,7 @@ static void line_1(Framebuffer &fb)
 static void hline_1(Framebuffer &fb)
 {
     // should be able to see that each successive line drawn is one pixel shorter
-    const Color c = Color::white;
+    const Color c = Color::white();
     fb.line(0, 0, fb.width() - 1, 0, c);
     fb.line(0, 2, fb.width() - 2, 2, c);
     fb.line(0, 4, fb.width() - 3, 4, c);
@@ -228,7 +232,7 @@ static void hline_1(Framebuffer &fb)
 [[maybe_unused]]
 static void draw_rect_1(Framebuffer &fb)
 {
-    fb.draw_rect(0, 0, fb.width(), fb.height(), Color::white);
+    fb.draw_rect(0, 0, fb.width(), fb.height(), Color::white());
 }
 
 
@@ -240,7 +244,7 @@ static void draw_rect_2(Framebuffer &fb)
     uint16_t hor = 0;
     uint16_t ver = 0;
     while (true) {
-        fb.draw_rect(hor, ver, wid, hgt, Color::white);
+        fb.draw_rect(hor, ver, wid, hgt, Color::white());
         hor += 2;
         ver += 2;
         if (wid <= 4 || hgt <= 4)
@@ -255,8 +259,8 @@ static void draw_rect_2(Framebuffer &fb)
 static void fill_rect_1(Framebuffer &fb)
 {
     const Color colors[] = {
-        Color::gray75, Color::red,     Color::green, Color::blue,
-        Color::yellow, Color::magenta, Color::cyan,  Color::white,
+        Color::gray75(), Color::red(),     Color::green(), Color::blue(),
+        Color::yellow(), Color::magenta(), Color::cyan(),  Color::white(),
     };
     const int color_cnt = sizeof(colors) / sizeof(colors[0]);
 
@@ -286,7 +290,7 @@ static void fill_rect_1(Framebuffer &fb)
 [[maybe_unused]]
 static void draw_circle_1(Framebuffer &fb)
 {
-    fb.draw_circle(100, 100, 100, Color::white);
+    fb.draw_circle(100, 100, 100, Color::white());
 }
 
 
@@ -297,14 +301,14 @@ static void draw_circle_2(Framebuffer &fb)
     int v = fb.height() / 2;
     int r = h < v ? h : v;
     r--;
-    fb.draw_circle(h, v, r, Color::red, Framebuffer::Quadrant::LowerRight);
-    fb.line(h + 1, v + 1, h + r, v + r, Color::red);
-    fb.draw_circle(h, v, r, Color::green, Framebuffer::Quadrant::LowerLeft);
-    fb.line(h - 1, v + 1, h - r, v + r, Color::green);
-    fb.draw_circle(h, v, r, Color::blue, Framebuffer::Quadrant::UpperLeft);
-    fb.line(h - 1, v - 1, h - r, v - r, Color::blue);
-    fb.draw_circle(h, v, r, Color::white, Framebuffer::Quadrant::UpperRight);
-    fb.line(h + 1, v - 1, h + r, v - r, Color::white);
+    fb.draw_circle(h, v, r, Color::red(), Framebuffer::Quadrant::LowerRight);
+    fb.line(h + 1, v + 1, h + r, v + r, Color::red());
+    fb.draw_circle(h, v, r, Color::green(), Framebuffer::Quadrant::LowerLeft);
+    fb.line(h - 1, v + 1, h - r, v + r, Color::green());
+    fb.draw_circle(h, v, r, Color::blue(), Framebuffer::Quadrant::UpperLeft);
+    fb.line(h - 1, v - 1, h - r, v - r, Color::blue());
+    fb.draw_circle(h, v, r, Color::white(), Framebuffer::Quadrant::UpperRight);
+    fb.line(h + 1, v - 1, h + r, v - r, Color::white());
 }
 
 
@@ -314,9 +318,9 @@ static void draw_circle_aa_1(Framebuffer &fb)
     const int h = fb.width() / 2;
     const int v = fb.height() / 2;
     const int r = (h < v ? h : v) - 20;
-    fb.draw_circle(h, v, r - 10, Color::white);
-    fb.draw_circle_aa(h, v, 8, Color::white, Color::black);
-    fb.draw_circle_aa(h, v, r + 10, Color::white, Color::black);
+    fb.draw_circle(h, v, r - 10, Color::white());
+    fb.draw_circle_aa(h, v, 8, Color::white(), Color::black());
+    fb.draw_circle_aa(h, v, r + 10, Color::white(), Color::black());
 }
 
 
@@ -327,7 +331,7 @@ static void draw_circle_aa_2(Framebuffer &fb)
     const int v = fb.height() / 2;
     const int r_max = h < v ? h : v;
     for (int r = 0; r < r_max; r += 4)
-        fb.draw_circle_aa(h, v, r, Color::white, Color::black);
+        fb.draw_circle_aa(h, v, r, Color::white(), Color::black());
 }
 
 
@@ -337,7 +341,7 @@ static void draw_circle_aa_2(Framebuffer &fb)
 static void print_char_1(Framebuffer &fb)
 {
     // background
-    fb.fill_rect(0, 0, fb.width(), fb.height(), Color::gray50);
+    fb.fill_rect(0, 0, fb.width(), fb.height(), Color::gray50());
     // somewhere near the middle, not exactly
     int h = fb.width() / 2;
     int v = fb.height() / 2;
@@ -346,52 +350,53 @@ static void print_char_1(Framebuffer &fb)
     int wid = font.width(c);
     int hgt = font.height();
     // draw black rectangle just outside where the character is expected
-    fb.draw_rect(h - 2, v - 2, wid + 4, hgt + 4, Color::black);
+    fb.draw_rect(h - 2, v - 2, wid + 4, hgt + 4, Color::black());
     // draw character, leaving one pixel of background around it in the box
-    fb.print(h, v, c, font, Color::black, Color::white);
+    fb.print(h, v, c, font, Color::black(), Color::white());
 }
 
 
 [[maybe_unused]]
 static void print_string_1(Framebuffer &fb)
 {
-    fb.fill_rect(0, 0, fb.width(), fb.height(), Color::white);
+    fb.fill_rect(0, 0, fb.width(), fb.height(), Color::white());
 
     uint16_t hor = 20;
     uint16_t ver = 20;
-    fb.print(hor, ver, "Hello,", font, Color::black, Color::white);
+    fb.print(hor, ver, "Hello,", font, Color::black(), Color::white());
     ver += font.y_adv;
-    fb.print(hor, ver, "world!", font, Color::black, Color::white);
+    fb.print(hor, ver, "world!", font, Color::black(), Color::white());
 }
 
 
 [[maybe_unused]]
 static void print_string_2(Framebuffer &fb)
 {
-    fb.fill_rect(0, 0, fb.width(), fb.height(), Color::gray50);
+    fb.fill_rect(0, 0, fb.width(), fb.height(), Color::gray50());
 
     int hor = fb.width() / 2;
     int ver = 20;
-    fb.line(hor, 0, hor, fb.height() - 1, Color::red);
+    fb.line(hor, 0, hor, fb.height() - 1, Color::red());
 
-    fb.print(hor, ver, "Hello, world!", font, Color::black, Color::white, 0);
+    fb.print(hor, ver, "Hello, world!", font, Color::black(), Color::white(),
+             0);
 }
 
 
 [[maybe_unused]]
 static void print_string_3(Framebuffer &fb)
 {
-    fb.fill_rect(0, 0, fb.width(), fb.height(), Color::gray50);
+    fb.fill_rect(0, 0, fb.width(), fb.height(), Color::gray50());
 
     // thin border around edge lets us see when we plot and edge pixel
-    fb.draw_rect(0, 0, fb.width(), fb.height(), Color::black);
+    fb.draw_rect(0, 0, fb.width(), fb.height(), Color::black());
 
     const char *s = "Hello";
 
     int w = font.width(s);
 
-    Color fg = Color::black;
-    Color bg = Color::white;
+    Color fg = Color::black();
+    Color bg = Color::white();
 
     // print with one pixel to spare on the right
     int ver = 20;
@@ -449,8 +454,8 @@ static void print_string_4(Framebuffer &fb)
     const int s2_wid = font.width(s2);
     const uint32_t ms = 0;
 
-    const Color fg = Color::red;
-    const Color bg = Color::white;
+    const Color fg = Color::red();
+    const Color bg = Color::white();
 
     fb.fill_rect(0, 0, fb.width(), fb.height(), bg);
 
@@ -478,4 +483,172 @@ static void print_string_4(Framebuffer &fb)
         if (v > (fb.height() - font.height()))
             v = 0;
     }
+}
+
+/////
+
+static constexpr size_t char_pixel_array_size(char ch, const Font &font)
+{
+    return font.y_adv * font.info[int(ch)].x_adv;
+}
+
+static constexpr size_t string_pixel_array_size(const char *s, const Font &font)
+{
+    size_t sz = 0;
+    while (*s != '\0') {
+        sz += char_pixel_array_size(*s, font);
+        s++;
+    }
+    return sz;
+}
+
+#include <array>
+
+#include "color.h"
+#include "pixel_565.h"
+#include "roboto_32.cpp"
+
+template <int wid, int hgt>
+struct PixelImage {
+    int width = wid;
+    int height = hgt;
+    Pixel565 pixels[wid * hgt];
+};
+
+
+// create an image from a character in a font
+// 'wid' is the character box width in pixels
+// 'hgt' is the character box height in pixels
+template <char ch, int wid, int hgt>
+static constexpr PixelImage<wid, hgt> image_init(const Font font, Color fg,
+                                                 Color bg)
+{
+    PixelImage<wid, hgt> img{};
+    const int ci = int(ch);
+    const uint8_t *gs = font.data + font.info[ci].off;
+    // width of character box
+    const int x_adv = font.info[ci].x_adv;
+    // offsets of glyph within character box
+    const int x_off = font.info[ci].x_off;
+    const int y_off = font.info[ci].y_off;
+    // glyph size (usually smaller than character box)
+    const int g_wid = font.info[ci].w;
+    const int g_hgt = font.info[ci].h;
+    // (row, col) covers character box
+    for (int row = 0; row < font.y_adv; row++) {
+        for (int col = 0; col < x_adv; col++) {
+            // see if the glyph covers this pixel in the character box
+            if (row >= y_off && row < (y_off + g_hgt) && //
+                col >= x_off && col < (x_off + g_wid)) {
+                // yes, interpolate from bg to fg based on glyph grayscale
+                int g_row = row - y_off;
+                int g_col = col - x_off;
+                uint8_t gray = gs[g_row * g_wid + g_col];
+                img.pixels[row * x_adv + col] =
+                    Color::interpolate(gray, bg, fg);
+            } else {
+                // nope, it's background
+                img.pixels[row * x_adv + col] = bg;
+            }
+        }
+    }
+    return img;
+}
+
+
+// create an image from a string in a font
+// 'wid' is the string box width in pixels
+// 'hgt' is the string box height in pixels
+template <const char s[], int wid, int hgt>
+static constexpr PixelImage<wid, hgt> image_init(const Font font, Color fg,
+                                                 Color bg)
+{
+    PixelImage<wid, hgt> img{};
+    int x_off = 0;
+    // for each character in the string
+    const char *s1 = s;
+    while (*s1 != '\0') {
+        const char ch = *s1;
+        const int ci = int(ch);
+        const uint8_t *gs = font.data + font.info[ci].off;
+        // width of character box
+        const int x_adv = font.info[ci].x_adv;
+        // offsets of glyph within character box
+        const int ch_x_off = font.info[ci].x_off;
+        const int ch_y_off = font.info[ci].y_off;
+        // glyph size (usually smaller than character box)
+        const int g_wid = font.info[ci].w;
+        const int g_hgt = font.info[ci].h;
+        // (row, col) covers character box
+        for (int row = 0; row < font.y_adv; row++) {
+            for (int col = 0; col < x_adv; col++) {
+                // see if the glyph covers this pixel in the character box
+                if (row >= ch_y_off && row < (ch_y_off + g_hgt) && //
+                    col >= ch_x_off && col < (ch_x_off + g_wid)) {
+                    // yes, interpolate from bg to fg based on glyph grayscale
+                    int g_row = row - ch_y_off;
+                    int g_col = col - ch_x_off;
+                    uint8_t gray = gs[g_row * g_wid + g_col];
+                    img.pixels[row * wid + (x_off + col)] =
+                        Color::interpolate(gray, bg, fg);
+                } else {
+                    // nope, it's background
+                    img.pixels[row * wid + (x_off + col)] = bg;
+                }
+            }
+        }
+        x_off += x_adv; // next character box start
+        s1++;           // next character in string
+    }
+    return img;
+}
+
+
+constexpr char a_char = 'Q';
+constexpr int a_char_wid = roboto_32.info[int(a_char)].x_adv;
+constexpr int a_char_hgt = roboto_32.y_adv;
+
+constexpr PixelImage<a_char_wid, a_char_hgt> a_img =
+    image_init<a_char, a_char_wid, a_char_hgt>(roboto_32, Color::white(),
+                                               Color::black());
+
+
+constexpr char b_str[] = "Hello, world!";
+constexpr int b_str_wid = roboto_32.width(b_str);
+constexpr int b_str_hgt = roboto_32.y_adv;
+
+constexpr PixelImage<b_str_wid, b_str_hgt> b_img =
+    image_init<b_str, b_str_wid, b_str_hgt>(roboto_32, Color::white(),
+                                            Color::black());
+
+
+[[maybe_unused]]
+static void test_a(St7796 &st7796)
+{
+    const char *loc;
+    if (is_ram(&a_img))
+        loc = "RAM";
+    else if (is_xip(&a_img))
+        loc = "XIP";
+    else
+        loc = "???";
+
+    printf("test_a: writing %dw x %dh image from %s at 0x%p (%d bytes)\n", //
+           a_img.width, a_img.height, loc, &a_img, sizeof(a_img.pixels));
+
+    st7796.write(st7796.width() / 2, st7796.height() / 2, a_img.pixels,
+                 a_img.width, a_img.height);
+
+    if (is_ram(&b_img))
+        loc = "RAM";
+    else if (is_xip(&b_img))
+        loc = "XIP";
+    else
+        loc = "???";
+
+    printf("test_a: writing %dw x %dh image from %s at 0x%p (%d bytes)\n", //
+           b_img.width, b_img.height, loc, &b_img, sizeof(b_img.pixels));
+
+    st7796.write(10, 3 * st7796.height() / 4, b_img.pixels, //
+                 b_img.width, b_img.height);
 }

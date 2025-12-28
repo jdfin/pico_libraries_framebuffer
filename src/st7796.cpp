@@ -401,6 +401,38 @@ void St7796::fill_rect(int h, int v, int wid, int hgt, const Color c)
 }
 
 
+// write array of pixels to screen
+void St7796::write(int h, int v, // where on screen to write
+                   const Pixel565 *px, int ph, int pv) // pixel array
+{
+    // can't start off the left edge or above the top
+    if (h < 0 || v < 0)
+        return;
+
+    // Don't try to go past right edge. Since (h + ph) is the first pixel
+    // after the one we're writing, (h + ph) == width is okay
+    if ((h + ph) > width())
+        return;
+
+    // Don't try to go past bottom edge.
+    if ((v + pv) > height())
+        return;
+
+    // Set spi transfer window - all pixels in this window will be painted.
+    set_window(h, v, ph, pv);
+
+    const uint8_t cmd = RAMWR;
+    select();
+    command();
+    spi_write_blocking(_spi, &cmd, 1);
+    data();
+
+    spi_write_blocking(_spi, (const uint8_t *)(px), ph * pv * sizeof(Pixel565));
+
+    deselect();
+}
+
+
 // print one character to screen
 void St7796::print(int h, int v, char c, const Font &font, const Color fg,
                    const Color bg, int align)

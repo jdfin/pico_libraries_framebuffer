@@ -19,7 +19,7 @@ struct Font {
     } info[128];
     const uint8_t *data;
 
-    bool printable(char c) const
+    constexpr bool printable(char c) const
     {
         // If 'char' is signed, we need c >= 0
         // If 'char' is unsigned, we need c <= 127
@@ -27,11 +27,14 @@ struct Font {
         return (c & 0x80) == 0;
     }
 
-    int8_t height() const { return y_adv; }
+    constexpr int8_t height() const { return y_adv; }
 
-    int8_t width(char c) const { return printable(c) ? info[int(c)].x_adv : 0; }
+    constexpr int8_t width(char c) const
+    {
+        return printable(c) ? info[int(c)].x_adv : 0;
+    }
 
-    int width(const char *s) const
+    constexpr int width(const char *s) const
     {
         int w = 0;
         while (*s != '\0') {
@@ -42,5 +45,5 @@ struct Font {
         return w;
     }
 
-    int8_t max_width() const { return x_adv_max; }
+    constexpr int8_t max_width() const { return x_adv_max; }
 };
