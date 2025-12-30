@@ -13,11 +13,8 @@
 #include "framebuffer.h"
 #include "pixel_565.h"
 
-#define DMA_FILL 1
-#define DMA_IMAGE 1
-
 // It's not difficult to handle either 8-bit or 16-bit pixel transfers, but
-// the code is simpler if we just always require 16-bit transfers.
+// the code is simpler if we just always require 16-bit pixel transfers.
 static_assert(Pixel565::xfer_size == 16,
               "St7796: Pixel565::xfer_size must be 16");
 
@@ -102,10 +99,8 @@ private:
     // backlight
     int _bk_pin;
 
-#if DMA_FILL || DMA_IMAGE
     uint _dma_ch;
     dma_channel_config _dma_cfg;
-#endif
 
     enum Rotation _rotation;
 

@@ -62,14 +62,12 @@ St7796::St7796(spi_inst_t *spi, int miso_pin, int mosi_pin, int clk_pin,
         brightness(100);
     }
 
-#if DMA_FILL || DMA_IMAGE
     // DMA is only used for pixel data
     _dma_ch = dma_claim_unused_channel(true);
     _dma_cfg = dma_channel_get_default_config(_dma_ch);
     channel_config_set_dreq(&_dma_cfg, spi_get_dreq(_spi, true));
     channel_config_set_transfer_data_size(&_dma_cfg, DMA_SIZE_16);
     channel_config_set_write_increment(&_dma_cfg, false); // write to spi
-#endif
 }
 
 
@@ -349,19 +347,6 @@ void St7796::fill_rect(int h, int v, int wid, int hgt, const Color c)
         return;
     hgt = v2 - v + 1;
 
-#if !DMA_FILL
-    // If _pix_buf is provided, fill it with the color to be used for filling
-    if (_pix_buf != nullptr) {
-        int pix_cnt = wid * hgt;
-        int fill_cnt = _pix_buf_len;
-        if (fill_cnt > pix_cnt)
-            fill_cnt = pix_cnt;
-        Pixel565 p = c;                    // Pixel565 operator=
-        for (int i = 0; i < fill_cnt; i++) //
-            _pix_buf[i] = p;
-    }
-#endif
-
     // framebuffer region to fill
     set_window(h, v, wid, hgt);
 
@@ -373,27 +358,9 @@ void St7796::fill_rect(int h, int v, int wid, int hgt, const Color c)
 
     data();
 
-#if DMA_FILL
     // use DMA to write from a single pixel to the SPI FIFO repeatedly
     Pixel565 p = c; // Pixel565 operator=
     spi_dma_blocking(&p, wid * hgt, false);
-#else
-    if (_pix_buf != nullptr) {
-        int pix_cnt = wid * hgt;
-        int wr_cnt = _pix_buf_len;
-        while (pix_cnt > 0) {
-            if (wr_cnt > pix_cnt)
-                wr_cnt = pix_cnt;
-            spi_write_blocking(_spi, (const uint8_t *)_pix_buf,
-                               wr_cnt * sizeof(Pixel565));
-            pix_cnt -= wr_cnt;
-        }
-    } else {
-        Pixel565 p = c; // Pixel565 operator=
-        for (int i = 0; i < (wid * hgt); i++)
-            spi_write_blocking(_spi, (uint8_t *)(&p), sizeof(p));
-    }
-#endif
 
     deselect();
 }
@@ -429,11 +396,7 @@ void St7796::write(int h, int v,                   // where on screen to write
     if (is_xip(px))
         px = xip_nocache(px);
 
-#if DMA_IMAGE
     spi_dma_blocking((const Pixel565 *)px, ph * pv);
-#else
-    spi_cpu_blocking((const Pixel565 *)px, ph * pv);
-#endif
 
     deselect();
 
