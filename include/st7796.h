@@ -13,8 +13,13 @@
 #include "framebuffer.h"
 #include "pixel_565.h"
 
-#define USE_DMA 1
+#define DMA_FILL 1
+#define DMA_IMAGE 1
 
+// It's not difficult to handle either 8-bit or 16-bit pixel transfers, but
+// the code is simpler if we just always require 16-bit transfers.
+static_assert(Pixel565::xfer_size == 16,
+              "St7796: Pixel565::xfer_size must be 16");
 
 class St7796 : public Framebuffer
 {
@@ -65,8 +70,8 @@ public:
                            const Color c) override;
 
     // write array of pixels to screen
-    void write(int h, int v,                  // where on screen to write
-               const Pixel565 *px, int ph, int pv); // pixel array
+    void write(int h, int v,                    // where on screen to write
+               const void *px, int ph, int pv); // pixel array
 
     // print character to screen
     virtual void print(int h, int v, char c, const Font &font, //
@@ -97,7 +102,7 @@ private:
     // backlight
     int _bk_pin;
 
-#if USE_DMA
+#if DMA_FILL || DMA_IMAGE
     uint _dma_ch;
     dma_channel_config _dma_cfg;
 #endif
@@ -217,4 +222,24 @@ private:
     void write_cmds(const uint16_t *b, int b_len);
 
     void set_window(uint16_t hor, uint16_t ver, uint16_t wid, uint16_t hgt);
+
+    void spi_cpu_blocking(const Pixel565 *pixel, int pixel_cnt)
+    {
+        spi_set_format(_spi, 16, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
+        spi_write16_blocking(_spi, (const uint16_t *)(pixel), pixel_cnt);
+        spi_set_format(_spi, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
+    }
+
+    void spi_dma_blocking(const Pixel565 *pixel, int pixel_cnt, bool inc = true)
+    {
+        spi_set_format(_spi, 16, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
+        channel_config_set_read_increment(&_dma_cfg, inc);
+        dma_channel_configure(_dma_ch, &_dma_cfg, &spi_get_hw(_spi)->dr, pixel,
+                              pixel_cnt, true); // go!
+        dma_channel_wait_for_finish_blocking(_dma_ch);
+        // dma is done, but spi still going
+        while (spi_is_busy(_spi))
+            tight_loop_contents();
+        spi_set_format(_spi, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
+    }
 };

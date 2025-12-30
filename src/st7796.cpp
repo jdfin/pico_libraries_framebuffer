@@ -9,6 +9,7 @@
 //
 #include "font.h"
 #include "pixel_565.h"
+#include "util.h"
 //
 #include "st7796.h"
 
@@ -61,12 +62,13 @@ St7796::St7796(spi_inst_t *spi, int miso_pin, int mosi_pin, int clk_pin,
         brightness(100);
     }
 
-#if USE_DMA
+#if DMA_FILL || DMA_IMAGE
+    // DMA is only used for pixel data
     _dma_ch = dma_claim_unused_channel(true);
     _dma_cfg = dma_channel_get_default_config(_dma_ch);
-    channel_config_set_transfer_data_size(&_dma_cfg, DMA_SIZE_8);
-    channel_config_set_ring(&_dma_cfg, false, 1);
     channel_config_set_dreq(&_dma_cfg, spi_get_dreq(_spi, true));
+    channel_config_set_transfer_data_size(&_dma_cfg, DMA_SIZE_16);
+    channel_config_set_write_increment(&_dma_cfg, false); // write to spi
 #endif
 }
 
@@ -282,7 +284,7 @@ void St7796::pixel(int hor, int ver, const Color c)
     command();
     spi_write_blocking(_spi, &cmd, 1);
     data();
-    spi_write_blocking(_spi, p.p_raw(), 2);
+    spi_write_blocking(_spi, (const uint8_t *)(&p), 2);
     deselect();
 }
 
@@ -347,7 +349,7 @@ void St7796::fill_rect(int h, int v, int wid, int hgt, const Color c)
         return;
     hgt = v2 - v + 1;
 
-#if !USE_DMA
+#if !DMA_FILL
     // If _pix_buf is provided, fill it with the color to be used for filling
     if (_pix_buf != nullptr) {
         int pix_cnt = wid * hgt;
@@ -370,15 +372,11 @@ void St7796::fill_rect(int h, int v, int wid, int hgt, const Color c)
     spi_write_blocking(_spi, &cmd, 1);
 
     data();
-#if USE_DMA
+
+#if DMA_FILL
     // use DMA to write from a single pixel to the SPI FIFO repeatedly
     Pixel565 p = c; // Pixel565 operator=
-    dma_channel_configure(_dma_ch, &_dma_cfg, &spi_get_hw(_spi)->dr, &p,
-                          wid * hgt * sizeof(p), true);
-    dma_channel_wait_for_finish_blocking(_dma_ch);
-    // there's still data in the SPI FIFO, wait for it to finish
-    while (spi_is_busy(_spi)) //
-        tight_loop_contents();
+    spi_dma_blocking(&p, wid * hgt, false);
 #else
     if (_pix_buf != nullptr) {
         int pix_cnt = wid * hgt;
@@ -402,8 +400,8 @@ void St7796::fill_rect(int h, int v, int wid, int hgt, const Color c)
 
 
 // write array of pixels to screen
-void St7796::write(int h, int v, // where on screen to write
-                   const Pixel565 *px, int ph, int pv) // pixel array
+void St7796::write(int h, int v,                   // where on screen to write
+                   const void *px, int ph, int pv) // pixel array
 {
     // can't start off the left edge or above the top
     if (h < 0 || v < 0)
@@ -427,10 +425,19 @@ void St7796::write(int h, int v, // where on screen to write
     spi_write_blocking(_spi, &cmd, 1);
     data();
 
-    spi_write_blocking(_spi, (const uint8_t *)(px), ph * pv * sizeof(Pixel565));
+    // if px is in XIP memory, use non-cached access
+    if (is_xip(px))
+        px = xip_nocache(px);
+
+#if DMA_IMAGE
+    spi_dma_blocking((const Pixel565 *)px, ph * pv);
+#else
+    spi_cpu_blocking((const Pixel565 *)px, ph * pv);
+#endif
 
     deselect();
-}
+
+} // St7796::write
 
 
 // print one character to screen
@@ -526,8 +533,7 @@ void St7796::print(int h, int v, char c, const Font &font, const Color fg,
             }
             if (p >= _pix_buf_len) {
                 // send buffer and restart it
-                spi_write_blocking(_spi, (const uint8_t *)(_pix_buf),
-                                   _pix_buf_len * sizeof(Pixel565));
+                spi_cpu_blocking(_pix_buf, _pix_buf_len);
                 p = 0;
             }
         }
@@ -535,8 +541,7 @@ void St7796::print(int h, int v, char c, const Font &font, const Color fg,
     // send final (partial) buffer if necessary
     if (p > 0) {
         // send buffer
-        spi_write_blocking(_spi, (const uint8_t *)(_pix_buf),
-                           p * sizeof(Pixel565));
+        spi_cpu_blocking(_pix_buf, p);
     }
 
     deselect();

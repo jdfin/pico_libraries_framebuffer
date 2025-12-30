@@ -3,6 +3,7 @@
 
 #include <cstdio>
 
+#include "argv.h"
 #include "color.h"
 #include "font.h"
 #include "great_vibes_48.h"
@@ -10,18 +11,22 @@
 #include "pico/stdio.h"
 #include "pico/stdio_usb.h"
 #include "pico/stdlib.h"
+#include "pixel_565.h"
+#include "pixel_image.h"
 #include "roboto_32.h"
+#include "str_ops.h"
+#include "sys_led.h"
 #include "util.h"
 
 // Pico:
 //
 // Signal Pin
 //
-// MISO   21  SPI0_RX
-// CS     22  SPI0_CSn
+// MISO   21  SPI0_RX (16)
+// CS     22  SPI0_CSn (17)
 //        23  GND
-// SCK    24  SPI0_SCK
-// MOSI   25  SPI0_TX
+// SCK    24  SPI0_SCK (18)
+// MOSI   25  SPI0_TX (19)
 // CD     26  GPIO20
 // RST    27  GPIO21
 //        28  GND
@@ -42,7 +47,9 @@ static const int spi_miso_pin = 16;
 static const int spi_mosi_pin = 19;
 static const int spi_clk_pin = 18;
 static const int spi_cs_pin = 17;
-static const int spi_baud = 15'000'000;
+static const uint32_t spi_baud_request = 15'000'000;
+static uint32_t spi_baud_actual = 0;
+static uint32_t spi_rate_max = 0;
 
 static const int lcd_cd_pin = 20;
 static const int lcd_rst_pin = 21;
@@ -54,28 +61,88 @@ static const int lcd_led_pin = 22;
 
 static const Font &font = roboto_32;
 
-static void rotations(St7796 &lcd);
-
-static void corner_pixels(Framebuffer &fb);
-static void corner_squares(Framebuffer &fb, int size = 10);
-static void line_1(Framebuffer &fb);
-static void hline_1(Framebuffer &fb);
-static void draw_rect_1(Framebuffer &fb);
-static void draw_rect_2(Framebuffer &fb);
-static void fill_rect_1(Framebuffer &fb);
-static void draw_circle_1(Framebuffer &fb);
-static void draw_circle_2(Framebuffer &fb);
-static void draw_circle_aa_1(Framebuffer &fb);
-static void draw_circle_aa_2(Framebuffer &fb);
-static void print_char_1(Framebuffer &fb);
-static void print_string_1(Framebuffer &fb);
-static void print_string_2(Framebuffer &fb);
-static void print_string_3(Framebuffer &fb);
-static void print_string_4(Framebuffer &fb);
-static void test_a(St7796 &st7796);
-
 static const int work_bytes = 128;
 static uint8_t work[work_bytes];
+
+namespace Rate {
+
+static uint32_t start_us;
+static uint32_t delta_us;
+static uint32_t rate_bs;
+
+static void start()
+{
+    Rate::start_us = time_us_32();
+}
+
+static void stop(uint32_t num_bytes)
+{
+    Rate::delta_us = time_us_32() - Rate::start_us;
+    if (Rate::delta_us == 0)
+        Rate::delta_us = 1;
+    Rate::rate_bs = (num_bytes * 1'000'000ull) / Rate::delta_us;
+}
+
+}; // namespace Rate
+
+static void rotations(St7796 &st7796);
+static void corner_pixels(St7796 &st7796);
+static void corner_squares(St7796 &st7796);
+static void line_1(St7796 &st7796);
+static void hline_1(St7796 &st7796);
+static void draw_rect_1(St7796 &st7796);
+static void draw_rect_2(St7796 &st7796);
+static void fill_rect_1(St7796 &st7796);
+static void fill_rect_2(St7796 &st7796);
+static void draw_circle_1(St7796 &st7796);
+static void draw_circle_2(St7796 &st7796);
+static void draw_circle_aa_1(St7796 &st7796);
+static void draw_circle_aa_2(St7796 &st7796);
+static void print_char_1(St7796 &st7796);
+static void print_string_1(St7796 &st7796);
+static void print_string_2(St7796 &st7796);
+static void print_string_3(St7796 &st7796);
+static void print_string_4(St7796 &st7796);
+static void img_chr(St7796 &st7796);
+static void img_str(St7796 &st7796);
+static void img_btn(St7796 &st7796);
+
+static struct {
+    const char *name;
+    void (*func)(St7796 &);
+} tests[] = {
+    {"rotations", rotations},
+    {"corner_pixels", corner_pixels},
+    {"corner_squares", corner_squares},
+    {"line_1", line_1},
+    {"hline_1", hline_1},
+    {"draw_rect_1", draw_rect_1},
+    {"draw_rect_2", draw_rect_2},
+    {"fill_rect_1", fill_rect_1},
+    {"fill_rect_2", fill_rect_2},
+    {"draw_circle_1", draw_circle_1},
+    {"draw_circle_2", draw_circle_2},
+    {"draw_circle_aa_1", draw_circle_aa_1},
+    {"draw_circle_aa_2", draw_circle_aa_2},
+    {"print_char_1", print_char_1},
+    {"print_string_1", print_string_1},
+    {"print_string_2", print_string_2},
+    {"print_string_3", print_string_3},
+    {"print_string_4", print_string_4},
+    {"img_chr", img_chr},
+    {"img_str", img_str},
+    {"img_btn", img_btn},
+};
+static const int num_tests = sizeof(tests) / sizeof(tests[0]);
+
+
+static void help()
+{
+    printf("\n");
+    printf("Usage: enter test number (0..%d)\n", num_tests - 1);
+    for (int i = 0; i < num_tests; i++) printf("%2d: %s\n", i, tests[i].name);
+    printf("\n");
+}
 
 
 static void reinit_screen(St7796 &lcd)
@@ -92,13 +159,32 @@ int main()
 {
     stdio_init_all();
 
-    while (!stdio_usb_connected()) tight_loop_contents();
+    SysLed::init();
+    SysLed::pattern(50, 950);
+
+    while (!stdio_usb_connected()) {
+        tight_loop_contents();
+        SysLed::loop();
+    }
+
+    sleep_ms(10);
+
+    SysLed::off();
+
+    printf("\n");
+    printf("st7796_test\n");
+    printf("\n");
+
+    Argv argv(1); // verbosity == 1 means echo
 
     St7796 lcd(spi0, spi_miso_pin, spi_mosi_pin, spi_clk_pin, spi_cs_pin,
-               spi_baud, lcd_cd_pin, lcd_rst_pin, lcd_led_pin, work,
+               spi_baud_request, lcd_cd_pin, lcd_rst_pin, lcd_led_pin, work,
                work_bytes);
 
-    printf("spi running at %lu Hz\n", lcd.spi_freq());
+    spi_baud_actual = lcd.spi_freq();
+    spi_rate_max = spi_baud_actual / 8;
+    printf("spi: requested %lu Hz, got %lu Hz (max %lu bytes/sec)\n", //
+           spi_baud_request, spi_baud_actual, spi_rate_max);
 
     lcd.init();
 
@@ -111,31 +197,38 @@ int main()
     // Now turn on backlight
     lcd.brightness(100);
 
-    do {
+    help();
 
-        //rotations(lcd);
-        //corner_pixels(lcd);
-        //corner_squares(lcd);
-        //line_1(lcd);
-        //hline_1(lcd);
-        //draw_rect_1(lcd);
-        //draw_rect_2(lcd);
-        //fill_rect_1(lcd);
-        //draw_circle_1(lcd);
-        //draw_circle_2(lcd);
-        //draw_circle_aa_1(lcd);
-        //draw_circle_aa_2(lcd);
-        //print_char_1(lcd);
-        //print_string_1(lcd);
-        //print_string_2(lcd);
-        //print_string_3(lcd);
-        //print_string_4(lcd);
-        test_a(lcd);
-        sleep_ms(100);
-        break;
+    while (true) {
+        int c = stdio_getchar_timeout_us(0);
+        if (0 <= c && c <= 255) {
+            if (argv.add_char(char(c))) {
+                int test_num = -1;
+                if (argv.argc() != 1) {
+                    printf("\n");
+                    printf("One integer only (got %d)\n", argv.argc());
+                    help();
+                } else if (!str_to_int(argv[0], &test_num)) {
+                    printf("\n");
+                    printf("Invalid test number: \"%s\"\n", argv[0]);
+                    help();
+                } else if (test_num < 0 || test_num >= num_tests) {
+                    printf("\n");
+                    printf("Test number out of range: %d\n", test_num);
+                    help();
+                } else {
+                    printf("\n");
+                    printf("Running \"%s\"\n", tests[test_num].name);
+                    printf("\n");
+                    reinit_screen(lcd);
+                    tests[test_num].func(lcd);
+                }
+                argv.reset();
+            }
+        }
+    }
 
-    } while (true);
-
+    sleep_ms(100);
     return 0;
 }
 
@@ -151,36 +244,35 @@ static void mark_origin(Framebuffer &fb, const char *label, const Color c)
 }
 
 
-[[maybe_unused]]
-static void rotations(St7796 &lcd)
+static void rotations(St7796 &st7796)
 {
     const uint32_t delay_ms = 2000;
-    Framebuffer &fb = lcd;
+    Framebuffer &fb = st7796;
 
     fb.fill_rect(0, 0, fb.width(), fb.height(), Color::black());
     sleep_ms(delay_ms);
 
-    lcd.rotation(St7796::Rotation::bottom);
+    st7796.rotation(St7796::Rotation::bottom);
     mark_origin(fb, "Rotation::bottom", Color::red());
     sleep_ms(delay_ms);
 
-    lcd.rotation(St7796::Rotation::left);
-    mark_origin(lcd, "Rotation::left", Color::green());
+    st7796.rotation(St7796::Rotation::left);
+    mark_origin(st7796, "Rotation::left", Color::green());
     sleep_ms(delay_ms);
 
-    lcd.rotation(St7796::Rotation::top);
-    mark_origin(lcd, "Rotation::top", Color::blue());
+    st7796.rotation(St7796::Rotation::top);
+    mark_origin(st7796, "Rotation::top", Color::blue());
     sleep_ms(delay_ms);
 
-    lcd.rotation(St7796::Rotation::right);
-    mark_origin(lcd, "Rotation::right", Color::white());
+    st7796.rotation(St7796::Rotation::right);
+    mark_origin(st7796, "Rotation::right", Color::white());
     sleep_ms(delay_ms);
 }
 
 
-[[maybe_unused]]
-static void corner_pixels(Framebuffer &fb)
+static void corner_pixels(St7796 &st7796)
 {
+    Framebuffer &fb = st7796;
     const Color c = Color::white();
     fb.pixel(0, 0, c);
     fb.pixel(0, fb.height() - 1, c);
@@ -189,9 +281,10 @@ static void corner_pixels(Framebuffer &fb)
 }
 
 
-[[maybe_unused]]
-static void corner_squares(Framebuffer &fb, int size)
+static void corner_squares(St7796 &st7796)
 {
+    Framebuffer &fb = st7796;
+    const int size = 10;
     for (int i = 0; i < size; i++) {
         for (int j = 0; j < size; j++) {
             fb.pixel(i, j, Color::red());
@@ -203,9 +296,9 @@ static void corner_squares(Framebuffer &fb, int size)
 }
 
 
-[[maybe_unused]]
-static void line_1(Framebuffer &fb)
+static void line_1(St7796 &st7796)
 {
+    Framebuffer &fb = st7796;
     const Color c = Color::white();
     int w1 = fb.width() - 1;
     int h1 = fb.height() - 1;
@@ -216,10 +309,10 @@ static void line_1(Framebuffer &fb)
 }
 
 
-[[maybe_unused]]
-static void hline_1(Framebuffer &fb)
+static void hline_1(St7796 &st7796)
 {
     // should be able to see that each successive line drawn is one pixel shorter
+    Framebuffer &fb = st7796;
     const Color c = Color::white();
     fb.line(0, 0, fb.width() - 1, 0, c);
     fb.line(0, 2, fb.width() - 2, 2, c);
@@ -229,16 +322,16 @@ static void hline_1(Framebuffer &fb)
 }
 
 
-[[maybe_unused]]
-static void draw_rect_1(Framebuffer &fb)
+static void draw_rect_1(St7796 &st7796)
 {
+    Framebuffer &fb = st7796;
     fb.draw_rect(0, 0, fb.width(), fb.height(), Color::white());
 }
 
 
-[[maybe_unused]]
-static void draw_rect_2(Framebuffer &fb)
+static void draw_rect_2(St7796 &st7796)
 {
+    Framebuffer &fb = st7796;
     uint16_t wid = fb.width();
     uint16_t hgt = fb.height();
     uint16_t hor = 0;
@@ -255,9 +348,34 @@ static void draw_rect_2(Framebuffer &fb)
 }
 
 
-[[maybe_unused]]
-static void fill_rect_1(Framebuffer &fb)
+static void fill_rect_1(St7796 &st7796)
 {
+    Framebuffer &fb = st7796;
+    const Color colors[] = {
+        Color::red(),    Color::green(),   Color::blue(),   //
+        Color::yellow(), Color::magenta(), Color::cyan(),   //
+        Color::gray25(), Color::gray50(),  Color::gray75(), //
+        Color::white(),
+    };
+    const int color_cnt = sizeof(colors) / sizeof(colors[0]);
+
+    for (int c_num = 0; c_num < color_cnt; c_num++) {
+        Rate::start();
+        fb.fill_rect(0, 0, fb.width(), fb.height(), colors[c_num]);
+        Rate::stop(fb.width() * fb.height() * sizeof(Pixel565));
+        printf("fill_rect_1: filled in %lu us (%lu bytes/sec, %lu%%)\n",
+               Rate::delta_us, Rate::rate_bs,
+               (Rate::rate_bs * 100) / spi_rate_max);
+        sleep_ms(100);
+    }
+
+    printf("\n");
+}
+
+
+static void fill_rect_2(St7796 &st7796)
+{
+    Framebuffer &fb = st7796;
     const Color colors[] = {
         Color::gray75(), Color::red(),     Color::green(), Color::blue(),
         Color::yellow(), Color::magenta(), Color::cyan(),  Color::white(),
@@ -287,16 +405,16 @@ static void fill_rect_1(Framebuffer &fb)
 }
 
 
-[[maybe_unused]]
-static void draw_circle_1(Framebuffer &fb)
+static void draw_circle_1(St7796 &st7796)
 {
+    Framebuffer &fb = st7796;
     fb.draw_circle(100, 100, 100, Color::white());
 }
 
 
-[[maybe_unused]]
-static void draw_circle_2(Framebuffer &fb)
+static void draw_circle_2(St7796 &st7796)
 {
+    Framebuffer &fb = st7796;
     int h = fb.width() / 2;
     int v = fb.height() / 2;
     int r = h < v ? h : v;
@@ -312,9 +430,9 @@ static void draw_circle_2(Framebuffer &fb)
 }
 
 
-[[maybe_unused]]
-static void draw_circle_aa_1(Framebuffer &fb)
+static void draw_circle_aa_1(St7796 &st7796)
 {
+    Framebuffer &fb = st7796;
     const int h = fb.width() / 2;
     const int v = fb.height() / 2;
     const int r = (h < v ? h : v) - 20;
@@ -324,9 +442,9 @@ static void draw_circle_aa_1(Framebuffer &fb)
 }
 
 
-[[maybe_unused]]
-static void draw_circle_aa_2(Framebuffer &fb)
+static void draw_circle_aa_2(St7796 &st7796)
 {
+    Framebuffer &fb = st7796;
     const int h = fb.width() / 2;
     const int v = fb.height() / 2;
     const int r_max = h < v ? h : v;
@@ -337,9 +455,9 @@ static void draw_circle_aa_2(Framebuffer &fb)
 
 // Should result in a gray50 background, a 1-pixel black box near the middle,
 // a 1-pixel gray50 box inside that one, then a black-on-white character
-[[maybe_unused]]
-static void print_char_1(Framebuffer &fb)
+static void print_char_1(St7796 &st7796)
 {
+    Framebuffer &fb = st7796;
     // background
     fb.fill_rect(0, 0, fb.width(), fb.height(), Color::gray50());
     // somewhere near the middle, not exactly
@@ -356,9 +474,9 @@ static void print_char_1(Framebuffer &fb)
 }
 
 
-[[maybe_unused]]
-static void print_string_1(Framebuffer &fb)
+static void print_string_1(St7796 &st7796)
 {
+    Framebuffer &fb = st7796;
     fb.fill_rect(0, 0, fb.width(), fb.height(), Color::white());
 
     uint16_t hor = 20;
@@ -369,9 +487,9 @@ static void print_string_1(Framebuffer &fb)
 }
 
 
-[[maybe_unused]]
-static void print_string_2(Framebuffer &fb)
+static void print_string_2(St7796 &st7796)
 {
+    Framebuffer &fb = st7796;
     fb.fill_rect(0, 0, fb.width(), fb.height(), Color::gray50());
 
     int hor = fb.width() / 2;
@@ -383,9 +501,9 @@ static void print_string_2(Framebuffer &fb)
 }
 
 
-[[maybe_unused]]
-static void print_string_3(Framebuffer &fb)
+static void print_string_3(St7796 &st7796)
 {
+    Framebuffer &fb = st7796;
     fb.fill_rect(0, 0, fb.width(), fb.height(), Color::gray50());
 
     // thin border around edge lets us see when we plot and edge pixel
@@ -445,9 +563,9 @@ static void print_string_3(Framebuffer &fb)
 }
 
 
-[[maybe_unused]]
-static void print_string_4(Framebuffer &fb)
+static void print_string_4(St7796 &st7796)
 {
+    Framebuffer &fb = st7796;
     const char *s1 = " >";
     const char *s2 = "< ";
     const int s1_wid = font.width(s1);
@@ -482,173 +600,389 @@ static void print_string_4(Framebuffer &fb)
         v += v_inc;
         if (v > (fb.height() - font.height()))
             v = 0;
+
+        int c = stdio_getchar_timeout_us(0);
+        if (0 <= c && c <= 255)
+            break;
     }
 }
 
-/////
 
-static constexpr size_t char_pixel_array_size(char ch, const Font &font)
+constexpr Font img_chr_font = roboto_32;
+constexpr char img_chr_char = 'Q';
+constexpr int img_chr_wid = img_chr_font.info[int(img_chr_char)].x_adv;
+constexpr int img_chr_hgt = img_chr_font.y_adv;
+constexpr Color img_chr_fg = Color::red();
+constexpr Color img_chr_bg = Color::black();
+
+constexpr PixelImage<Pixel565, img_chr_wid, img_chr_hgt> img_chr_img =
+    image_init<Pixel565, img_chr_char, img_chr_wid, img_chr_hgt> //
+    (img_chr_font, img_chr_fg, img_chr_bg);
+
+static void img_chr(St7796 &st7796)
 {
-    return font.y_adv * font.info[int(ch)].x_adv;
+    const char *loc = mem_name(&img_chr_img);
+
+    printf("img_chr: writing %dw x %dh image from %s at 0x%p (%d bytes)\n", //
+           img_chr_img.width, img_chr_img.height, loc, &img_chr_img,
+           sizeof(img_chr_img.pixels));
+
+    int hor = 10;
+    int ver = 10;
+
+    Rate::start();
+    st7796.write(hor, ver, img_chr_img.pixels, //
+                 img_chr_img.width, img_chr_img.height);
+    Rate::stop(sizeof(img_chr_img.pixels));
+    printf("img_chr: wrote in %lu us (%lu bytes/sec, %lu%%)\n", Rate::delta_us,
+           Rate::rate_bs, (Rate::rate_bs * 100) / spi_rate_max);
+
+    ver += 40;
+
+    printf("img_chr: printing '%c'\n", img_chr_char);
+    Framebuffer &fb = st7796;
+    Rate::start();
+    fb.print(hor, ver, img_chr_char, img_chr_font, img_chr_fg, img_chr_bg);
+    Rate::stop(sizeof(img_chr_img.pixels));
+    printf("img_chr: printed in %lu us (%lu bytes/sec, %lu%%)\n",
+           Rate::delta_us, Rate::rate_bs, (Rate::rate_bs * 100) / spi_rate_max);
+
+    printf("\n");
 }
 
-static constexpr size_t string_pixel_array_size(const char *s, const Font &font)
+
+constexpr Font img_str_font = roboto_32;
+constexpr char img_str_msg[] = "Hello, world!";
+constexpr int img_str_wid = img_str_font.width(img_str_msg);
+constexpr int img_str_hgt = img_str_font.y_adv;
+constexpr Color img_str_fg = Color::green();
+constexpr Color img_str_bg = Color::black();
+
+constexpr PixelImage<Pixel565, img_str_wid, img_str_hgt> img_str_img =
+    image_init<Pixel565, img_str_msg, img_str_wid, img_str_hgt> //
+    (img_str_font, img_str_fg, img_str_bg);
+
+static void img_str(St7796 &st7796)
 {
-    size_t sz = 0;
-    while (*s != '\0') {
-        sz += char_pixel_array_size(*s, font);
-        s++;
-    }
-    return sz;
+    const char *loc = mem_name(&img_str_img);
+
+    printf("img_str: writing %dw x %dh image from %s at 0x%p (%d bytes)\n", //
+           img_str_img.width, img_str_img.height, loc, &img_str_img,
+           sizeof(img_str_img.pixels));
+
+    int hor = 10;
+    int ver = 10;
+
+    Rate::start();
+    st7796.write(hor, ver, img_str_img.pixels, //
+                 img_str_img.width, img_str_img.height);
+    Rate::stop(sizeof(img_str_img.pixels));
+    printf("img_str: wrote in %lu us (%lu bytes/sec, %lu%%)\n", Rate::delta_us,
+           Rate::rate_bs, (Rate::rate_bs * 100) / spi_rate_max);
+
+    ver += 40;
+
+    printf("img_str: printing \"%s\"\n", img_str_msg);
+    Framebuffer &fb = st7796;
+    Rate::start();
+    fb.print(hor, ver, img_str_msg, img_str_font, img_str_fg, img_str_bg);
+    Rate::stop(sizeof(img_str_img.pixels));
+    printf("img_str: printed in %lu us (%lu bytes/sec, %lu%%)\n",
+           Rate::delta_us, Rate::rate_bs, (Rate::rate_bs * 100) / spi_rate_max);
+
+    printf("\n");
 }
 
-#include <array>
 
-#include "color.h"
-#include "pixel_565.h"
-#include "roboto_32.cpp"
+// Print array of buttons, each with a box around it:
+//  0  1  2  3  4  5  6  7  8  9
+// 10 11 12 13 14 15 16 17 18 19
+// 20 21 22 23 24 25 26 27 28 29
 
-template <int wid, int hgt>
-struct PixelImage {
-    int width = wid;
-    int height = hgt;
-    Pixel565 pixels[wid * hgt];
+constexpr int img_btn_per_row = 10;
+constexpr int img_btn_sz = 480 / img_btn_per_row;
+
+constexpr Font img_btn_font = roboto_32;
+constexpr Color img_btn_fg = Color::black();
+constexpr Color img_btn_bg = Color::white();
+constexpr int img_btn_hgt = img_btn_font.y_adv;
+
+constexpr char img_btn_0_str[] = "0";
+constexpr int img_btn_0_wid = img_btn_font.width(img_btn_0_str);
+constexpr PixelImage<Pixel565, img_btn_0_wid, img_btn_hgt> img_btn_0 =
+    image_init<Pixel565, img_btn_0_str, img_btn_0_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_1_str[] = "1";
+constexpr int img_btn_1_wid = img_btn_font.width(img_btn_1_str);
+constexpr PixelImage<Pixel565, img_btn_1_wid, img_btn_hgt> img_btn_1 =
+    image_init<Pixel565, img_btn_1_str, img_btn_1_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_2_str[] = "2";
+constexpr int img_btn_2_wid = img_btn_font.width(img_btn_2_str);
+constexpr PixelImage<Pixel565, img_btn_2_wid, img_btn_hgt> img_btn_2 =
+    image_init<Pixel565, img_btn_2_str, img_btn_2_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_3_str[] = "3";
+constexpr int img_btn_3_wid = img_btn_font.width(img_btn_3_str);
+constexpr PixelImage<Pixel565, img_btn_3_wid, img_btn_hgt> img_btn_3 =
+    image_init<Pixel565, img_btn_3_str, img_btn_3_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_4_str[] = "4";
+constexpr int img_btn_4_wid = img_btn_font.width(img_btn_4_str);
+constexpr PixelImage<Pixel565, img_btn_4_wid, img_btn_hgt> img_btn_4 =
+    image_init<Pixel565, img_btn_4_str, img_btn_4_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_5_str[] = "5";
+constexpr int img_btn_5_wid = img_btn_font.width(img_btn_5_str);
+constexpr PixelImage<Pixel565, img_btn_5_wid, img_btn_hgt> img_btn_5 =
+    image_init<Pixel565, img_btn_5_str, img_btn_5_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_6_str[] = "6";
+constexpr int img_btn_6_wid = img_btn_font.width(img_btn_6_str);
+constexpr PixelImage<Pixel565, img_btn_6_wid, img_btn_hgt> img_btn_6 =
+    image_init<Pixel565, img_btn_6_str, img_btn_6_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_7_str[] = "7";
+constexpr int img_btn_7_wid = img_btn_font.width(img_btn_7_str);
+constexpr PixelImage<Pixel565, img_btn_7_wid, img_btn_hgt> img_btn_7 =
+    image_init<Pixel565, img_btn_7_str, img_btn_7_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_8_str[] = "8";
+constexpr int img_btn_8_wid = img_btn_font.width(img_btn_8_str);
+constexpr PixelImage<Pixel565, img_btn_8_wid, img_btn_hgt> img_btn_8 =
+    image_init<Pixel565, img_btn_8_str, img_btn_8_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_9_str[] = "9";
+constexpr int img_btn_9_wid = img_btn_font.width(img_btn_9_str);
+constexpr PixelImage<Pixel565, img_btn_9_wid, img_btn_hgt> img_btn_9 =
+    image_init<Pixel565, img_btn_9_str, img_btn_9_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_10_str[] = "10";
+constexpr int img_btn_10_wid = img_btn_font.width(img_btn_10_str);
+constexpr PixelImage<Pixel565, img_btn_10_wid, img_btn_hgt> img_btn_10 =
+    image_init<Pixel565, img_btn_10_str, img_btn_10_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_11_str[] = "11";
+constexpr int img_btn_11_wid = img_btn_font.width(img_btn_11_str);
+constexpr PixelImage<Pixel565, img_btn_11_wid, img_btn_hgt> img_btn_11 =
+    image_init<Pixel565, img_btn_11_str, img_btn_11_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_12_str[] = "12";
+constexpr int img_btn_12_wid = img_btn_font.width(img_btn_12_str);
+constexpr PixelImage<Pixel565, img_btn_12_wid, img_btn_hgt> img_btn_12 =
+    image_init<Pixel565, img_btn_12_str, img_btn_12_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_13_str[] = "13";
+constexpr int img_btn_13_wid = img_btn_font.width(img_btn_13_str);
+constexpr PixelImage<Pixel565, img_btn_13_wid, img_btn_hgt> img_btn_13 =
+    image_init<Pixel565, img_btn_13_str, img_btn_13_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_14_str[] = "14";
+constexpr int img_btn_14_wid = img_btn_font.width(img_btn_14_str);
+constexpr PixelImage<Pixel565, img_btn_14_wid, img_btn_hgt> img_btn_14 =
+    image_init<Pixel565, img_btn_14_str, img_btn_14_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_15_str[] = "15";
+constexpr int img_btn_15_wid = img_btn_font.width(img_btn_15_str);
+constexpr PixelImage<Pixel565, img_btn_15_wid, img_btn_hgt> img_btn_15 =
+    image_init<Pixel565, img_btn_15_str, img_btn_15_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_16_str[] = "16";
+constexpr int img_btn_16_wid = img_btn_font.width(img_btn_16_str);
+constexpr PixelImage<Pixel565, img_btn_16_wid, img_btn_hgt> img_btn_16 =
+    image_init<Pixel565, img_btn_16_str, img_btn_16_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_17_str[] = "17";
+constexpr int img_btn_17_wid = img_btn_font.width(img_btn_17_str);
+constexpr PixelImage<Pixel565, img_btn_17_wid, img_btn_hgt> img_btn_17 =
+    image_init<Pixel565, img_btn_17_str, img_btn_17_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_18_str[] = "18";
+constexpr int img_btn_18_wid = img_btn_font.width(img_btn_18_str);
+constexpr PixelImage<Pixel565, img_btn_18_wid, img_btn_hgt> img_btn_18 =
+    image_init<Pixel565, img_btn_18_str, img_btn_18_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_19_str[] = "19";
+constexpr int img_btn_19_wid = img_btn_font.width(img_btn_19_str);
+constexpr PixelImage<Pixel565, img_btn_19_wid, img_btn_hgt> img_btn_19 =
+    image_init<Pixel565, img_btn_19_str, img_btn_19_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_20_str[] = "20";
+constexpr int img_btn_20_wid = img_btn_font.width(img_btn_20_str);
+constexpr PixelImage<Pixel565, img_btn_20_wid, img_btn_hgt> img_btn_20 =
+    image_init<Pixel565, img_btn_20_str, img_btn_20_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_21_str[] = "21";
+constexpr int img_btn_21_wid = img_btn_font.width(img_btn_21_str);
+constexpr PixelImage<Pixel565, img_btn_21_wid, img_btn_hgt> img_btn_21 =
+    image_init<Pixel565, img_btn_21_str, img_btn_21_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_22_str[] = "22";
+constexpr int img_btn_22_wid = img_btn_font.width(img_btn_22_str);
+constexpr PixelImage<Pixel565, img_btn_22_wid, img_btn_hgt> img_btn_22 =
+    image_init<Pixel565, img_btn_22_str, img_btn_22_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_23_str[] = "23";
+constexpr int img_btn_23_wid = img_btn_font.width(img_btn_23_str);
+constexpr PixelImage<Pixel565, img_btn_23_wid, img_btn_hgt> img_btn_23 =
+    image_init<Pixel565, img_btn_23_str, img_btn_23_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_24_str[] = "24";
+constexpr int img_btn_24_wid = img_btn_font.width(img_btn_24_str);
+constexpr PixelImage<Pixel565, img_btn_24_wid, img_btn_hgt> img_btn_24 =
+    image_init<Pixel565, img_btn_24_str, img_btn_24_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_25_str[] = "25";
+constexpr int img_btn_25_wid = img_btn_font.width(img_btn_25_str);
+constexpr PixelImage<Pixel565, img_btn_25_wid, img_btn_hgt> img_btn_25 =
+    image_init<Pixel565, img_btn_25_str, img_btn_25_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_26_str[] = "26";
+constexpr int img_btn_26_wid = img_btn_font.width(img_btn_26_str);
+constexpr PixelImage<Pixel565, img_btn_26_wid, img_btn_hgt> img_btn_26 =
+    image_init<Pixel565, img_btn_26_str, img_btn_26_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_27_str[] = "27";
+constexpr int img_btn_27_wid = img_btn_font.width(img_btn_27_str);
+constexpr PixelImage<Pixel565, img_btn_27_wid, img_btn_hgt> img_btn_27 =
+    image_init<Pixel565, img_btn_27_str, img_btn_27_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_28_str[] = "28";
+constexpr int img_btn_28_wid = img_btn_font.width(img_btn_28_str);
+constexpr PixelImage<Pixel565, img_btn_28_wid, img_btn_hgt> img_btn_28 =
+    image_init<Pixel565, img_btn_28_str, img_btn_28_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+constexpr char img_btn_29_str[] = "29";
+constexpr int img_btn_29_wid = img_btn_font.width(img_btn_29_str);
+constexpr PixelImage<Pixel565, img_btn_29_wid, img_btn_hgt> img_btn_29 =
+    image_init<Pixel565, img_btn_29_str, img_btn_29_wid, img_btn_hgt>(
+        img_btn_font, img_btn_fg, img_btn_bg);
+
+// and one with "pressed" colors
+constexpr PixelImage<Pixel565, img_btn_13_wid, img_btn_hgt> img_btn_13_inv =
+    image_init<Pixel565, img_btn_13_str, img_btn_13_wid, img_btn_hgt>(
+        img_btn_font, img_btn_bg, img_btn_fg);
+
+
+struct {
+    int wid;
+    int hgt;
+    const Pixel565 *pix;
+} btn_img[30] = {
+    {img_btn_0.width, img_btn_0.height, img_btn_0.pixels},
+    {img_btn_1.width, img_btn_1.height, img_btn_1.pixels},
+    {img_btn_2.width, img_btn_2.height, img_btn_2.pixels},
+    {img_btn_3.width, img_btn_3.height, img_btn_3.pixels},
+    {img_btn_4.width, img_btn_4.height, img_btn_4.pixels},
+    {img_btn_5.width, img_btn_5.height, img_btn_5.pixels},
+    {img_btn_6.width, img_btn_6.height, img_btn_6.pixels},
+    {img_btn_7.width, img_btn_7.height, img_btn_7.pixels},
+    {img_btn_8.width, img_btn_8.height, img_btn_8.pixels},
+    {img_btn_9.width, img_btn_9.height, img_btn_9.pixels},
+    {img_btn_10.width, img_btn_10.height, img_btn_10.pixels},
+    {img_btn_11.width, img_btn_11.height, img_btn_11.pixels},
+    {img_btn_12.width, img_btn_12.height, img_btn_12.pixels},
+    {img_btn_13.width, img_btn_13.height, img_btn_13.pixels},
+    {img_btn_14.width, img_btn_14.height, img_btn_14.pixels},
+    {img_btn_15.width, img_btn_15.height, img_btn_15.pixels},
+    {img_btn_16.width, img_btn_16.height, img_btn_16.pixels},
+    {img_btn_17.width, img_btn_17.height, img_btn_17.pixels},
+    {img_btn_18.width, img_btn_18.height, img_btn_18.pixels},
+    {img_btn_19.width, img_btn_19.height, img_btn_19.pixels},
+    {img_btn_20.width, img_btn_20.height, img_btn_20.pixels},
+    {img_btn_21.width, img_btn_21.height, img_btn_21.pixels},
+    {img_btn_22.width, img_btn_22.height, img_btn_22.pixels},
+    {img_btn_23.width, img_btn_23.height, img_btn_23.pixels},
+    {img_btn_24.width, img_btn_24.height, img_btn_24.pixels},
+    {img_btn_25.width, img_btn_25.height, img_btn_25.pixels},
+    {img_btn_26.width, img_btn_26.height, img_btn_26.pixels},
+    {img_btn_27.width, img_btn_27.height, img_btn_27.pixels},
+    {img_btn_28.width, img_btn_28.height, img_btn_28.pixels},
+    {img_btn_29.width, img_btn_29.height, img_btn_29.pixels},
 };
 
-
-// create an image from a character in a font
-// 'wid' is the character box width in pixels
-// 'hgt' is the character box height in pixels
-template <char ch, int wid, int hgt>
-static constexpr PixelImage<wid, hgt> image_init(const Font font, Color fg,
-                                                 Color bg)
+static void img_btn(St7796 &st7796)
 {
-    PixelImage<wid, hgt> img{};
-    const int ci = int(ch);
-    const uint8_t *gs = font.data + font.info[ci].off;
-    // width of character box
-    const int x_adv = font.info[ci].x_adv;
-    // offsets of glyph within character box
-    const int x_off = font.info[ci].x_off;
-    const int y_off = font.info[ci].y_off;
-    // glyph size (usually smaller than character box)
-    const int g_wid = font.info[ci].w;
-    const int g_hgt = font.info[ci].h;
-    // (row, col) covers character box
-    for (int row = 0; row < font.y_adv; row++) {
-        for (int col = 0; col < x_adv; col++) {
-            // see if the glyph covers this pixel in the character box
-            if (row >= y_off && row < (y_off + g_hgt) && //
-                col >= x_off && col < (x_off + g_wid)) {
-                // yes, interpolate from bg to fg based on glyph grayscale
-                int g_row = row - y_off;
-                int g_col = col - x_off;
-                uint8_t gray = gs[g_row * g_wid + g_col];
-                img.pixels[row * x_adv + col] =
-                    Color::interpolate(gray, bg, fg);
-            } else {
-                // nope, it's background
-                img.pixels[row * x_adv + col] = bg;
-            }
+    Framebuffer &fb = st7796;
+
+    // clear screen
+    fb.fill_rect(0, 0, fb.width(), fb.height(), img_btn_bg);
+
+    int hor, ver; // top-left corner of each button
+
+    // draw buttons
+    ver = 0;
+    for (int r = 0; r < 3; r++) {
+        hor = 0;
+        for (int c = 0; c < img_btn_per_row; c++) {
+            // outline
+            fb.draw_rect(hor, ver, img_btn_sz, img_btn_sz, img_btn_fg);
+            // label
+            int idx = r * img_btn_per_row + c;
+            assert(0 <= idx && idx < 30);
+            assert(is_xip(btn_img[idx].pix));
+            st7796.write(hor + img_btn_sz / 2 - btn_img[idx].wid / 2, //
+                         ver + img_btn_sz / 2 - btn_img[idx].hgt / 2, //
+                         btn_img[idx].pix, btn_img[idx].wid, btn_img[idx].hgt);
+            hor += img_btn_sz;
         }
+        ver += img_btn_sz;
     }
-    return img;
-}
+    fb.line(0, img_btn_sz * 3, fb.width() - 1, img_btn_sz * 3, img_btn_fg);
 
-
-// create an image from a string in a font
-// 'wid' is the string box width in pixels
-// 'hgt' is the string box height in pixels
-template <const char s[], int wid, int hgt>
-static constexpr PixelImage<wid, hgt> image_init(const Font font, Color fg,
-                                                 Color bg)
-{
-    PixelImage<wid, hgt> img{};
-    int x_off = 0;
-    // for each character in the string
-    const char *s1 = s;
-    while (*s1 != '\0') {
-        const char ch = *s1;
-        const int ci = int(ch);
-        const uint8_t *gs = font.data + font.info[ci].off;
-        // width of character box
-        const int x_adv = font.info[ci].x_adv;
-        // offsets of glyph within character box
-        const int ch_x_off = font.info[ci].x_off;
-        const int ch_y_off = font.info[ci].y_off;
-        // glyph size (usually smaller than character box)
-        const int g_wid = font.info[ci].w;
-        const int g_hgt = font.info[ci].h;
-        // (row, col) covers character box
-        for (int row = 0; row < font.y_adv; row++) {
-            for (int col = 0; col < x_adv; col++) {
-                // see if the glyph covers this pixel in the character box
-                if (row >= ch_y_off && row < (ch_y_off + g_hgt) && //
-                    col >= ch_x_off && col < (ch_x_off + g_wid)) {
-                    // yes, interpolate from bg to fg based on glyph grayscale
-                    int g_row = row - ch_y_off;
-                    int g_col = col - ch_x_off;
-                    uint8_t gray = gs[g_row * g_wid + g_col];
-                    img.pixels[row * wid + (x_off + col)] =
-                        Color::interpolate(gray, bg, fg);
-                } else {
-                    // nope, it's background
-                    img.pixels[row * wid + (x_off + col)] = bg;
-                }
-            }
+    // flip button 13 a few times
+    int btn_num = 13;
+    hor = img_btn_sz * (btn_num % 10);
+    ver = img_btn_sz * (btn_num / 10);
+    for (int i = 0; i < 10; i++) {
+        if ((i & 1) == 0) {
+            // inverted
+            //fb.draw_rect(hor, ver, img_btn_sz, img_btn_sz, img_btn_bg);
+            fb.fill_rect(hor + 1, ver + 1, img_btn_sz - 2, img_btn_sz - 2,
+                         img_btn_fg);
+            st7796.write(hor + img_btn_sz / 2 - btn_img[btn_num].wid / 2,
+                         ver + img_btn_sz / 2 - btn_img[btn_num].hgt / 2,
+                         img_btn_13_inv.pixels, btn_img[btn_num].wid,
+                         btn_img[btn_num].hgt);
+        } else {
+            // not inverted
+            //fb.draw_rect(hor, ver, img_btn_sz, img_btn_sz, img_btn_fg);
+            fb.fill_rect(hor + 1, ver + 1, img_btn_sz - 2, img_btn_sz - 2,
+                         img_btn_bg);
+            st7796.write(hor + img_btn_sz / 2 - btn_img[btn_num].wid / 2,
+                         ver + img_btn_sz / 2 - btn_img[btn_num].hgt / 2,
+                         img_btn_13.pixels, btn_img[btn_num].wid,
+                         btn_img[btn_num].hgt);
         }
-        x_off += x_adv; // next character box start
-        s1++;           // next character in string
+        sleep_ms(1000);
     }
-    return img;
-}
-
-
-constexpr char a_char = 'Q';
-constexpr int a_char_wid = roboto_32.info[int(a_char)].x_adv;
-constexpr int a_char_hgt = roboto_32.y_adv;
-
-constexpr PixelImage<a_char_wid, a_char_hgt> a_img =
-    image_init<a_char, a_char_wid, a_char_hgt>(roboto_32, Color::white(),
-                                               Color::black());
-
-
-constexpr char b_str[] = "Hello, world!";
-constexpr int b_str_wid = roboto_32.width(b_str);
-constexpr int b_str_hgt = roboto_32.y_adv;
-
-constexpr PixelImage<b_str_wid, b_str_hgt> b_img =
-    image_init<b_str, b_str_wid, b_str_hgt>(roboto_32, Color::white(),
-                                            Color::black());
-
-
-[[maybe_unused]]
-static void test_a(St7796 &st7796)
-{
-    const char *loc;
-    if (is_ram(&a_img))
-        loc = "RAM";
-    else if (is_xip(&a_img))
-        loc = "XIP";
-    else
-        loc = "???";
-
-    printf("test_a: writing %dw x %dh image from %s at 0x%p (%d bytes)\n", //
-           a_img.width, a_img.height, loc, &a_img, sizeof(a_img.pixels));
-
-    st7796.write(st7796.width() / 2, st7796.height() / 2, a_img.pixels,
-                 a_img.width, a_img.height);
-
-    if (is_ram(&b_img))
-        loc = "RAM";
-    else if (is_xip(&b_img))
-        loc = "XIP";
-    else
-        loc = "???";
-
-    printf("test_a: writing %dw x %dh image from %s at 0x%p (%d bytes)\n", //
-           b_img.width, b_img.height, loc, &b_img, sizeof(b_img.pixels));
-
-    st7796.write(10, 3 * st7796.height() / 4, b_img.pixels, //
-                 b_img.width, b_img.height);
 }
