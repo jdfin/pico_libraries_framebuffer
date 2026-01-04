@@ -17,20 +17,12 @@ public:
     {
     }
 
+    // clang-format off
     constexpr uint8_t r() const { return _r; }
     constexpr uint8_t g() const { return _g; }
     constexpr uint8_t b() const { return _b; }
     constexpr uint8_t a() const { return _a; }
-
-#if 0
-    void set(uint8_t r, uint8_t g, uint8_t b, uint8_t a=opaque)
-    {
-        _r = r;
-        _g = g;
-        _b = b;
-        _a = a;
-    }
-#endif
+    // clang-format on
 
     void get(uint8_t &r, uint8_t &g, uint8_t &b) const
     {
@@ -45,18 +37,20 @@ public:
         a = _a;
     }
 
-    static constexpr Color black() { return Color(0x00, 0x00, 0x00, opaque); }
-    static constexpr Color red() { return Color(0xff, 0x00, 0x00, opaque); }
-    static constexpr Color green() { return Color(0x00, 0xff, 0x00, opaque); }
-    static constexpr Color blue() { return Color(0x00, 0x00, 0xff, opaque); }
-    static constexpr Color yellow() { return Color(0xff, 0xff, 0x00, opaque); }
+    // clang-format off
+    static constexpr Color black()   { return Color(0x00, 0x00, 0x00, opaque); }
+    static constexpr Color red()     { return Color(0xff, 0x00, 0x00, opaque); }
+    static constexpr Color green()   { return Color(0x00, 0xff, 0x00, opaque); }
+    static constexpr Color blue()    { return Color(0x00, 0x00, 0xff, opaque); }
+    static constexpr Color yellow()  { return Color(0xff, 0xff, 0x00, opaque); }
     static constexpr Color magenta() { return Color(0xff, 0x00, 0xff, opaque); }
-    static constexpr Color cyan() { return Color(0x00, 0xff, 0xff, opaque); }
-    static constexpr Color white() { return Color(0xff, 0xff, 0xff, opaque); }
-    static constexpr Color gray25() { return Color(0x40, 0x40, 0x40, opaque); } // lighter
-    static constexpr Color gray50() { return Color(0x80, 0x80, 0x80, opaque); } // medium
-    static constexpr Color gray75() { return Color(0xc0, 0xc0, 0xc0, opaque); } // darker
-    static constexpr Color none() { return Color(0, 0, 0, transparent); } // alpha = transparent
+    static constexpr Color cyan()    { return Color(0x00, 0xff, 0xff, opaque); }
+    static constexpr Color white()   { return Color(0xff, 0xff, 0xff, opaque); }
+    static constexpr Color gray25()  { return Color(0x40, 0x40, 0x40, opaque); }
+    static constexpr Color gray50()  { return Color(0x80, 0x80, 0x80, opaque); }
+    static constexpr Color gray75()  { return Color(0xc0, 0xc0, 0xc0, opaque); }
+    static constexpr Color none()    { return Color(0, 0, 0, transparent); }
+    // clang-format on
 
     // alpha
     static const uint8_t transparent = 0;
@@ -87,4 +81,9 @@ private:
     const uint8_t _g;
     const uint8_t _b;
     const uint8_t _a;
+
+public:
+
+    // this has to be down here - I don't fully understand it :(
+    Color &operator=(const Color &) = default;
 };

@@ -55,6 +55,11 @@ public:
     static_assert(xfer_size == 8 || xfer_size == 16,
                   "Pixel565: xfer_size must be 8 or 16");
 
+    constexpr uint16_t value() const
+    {
+        return _pixel;
+    }
+
 private:
 
     uint16_t _pixel;

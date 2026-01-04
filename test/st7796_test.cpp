@@ -64,27 +64,6 @@ static const Font &font = roboto_32;
 static const int work_bytes = 128;
 static uint8_t work[work_bytes];
 
-namespace Rate {
-
-static uint32_t start_us;
-static uint32_t delta_us;
-static uint32_t rate_bs;
-
-static void start()
-{
-    Rate::start_us = time_us_32();
-}
-
-static void stop(uint32_t num_bytes)
-{
-    Rate::delta_us = time_us_32() - Rate::start_us;
-    if (Rate::delta_us == 0)
-        Rate::delta_us = 1;
-    Rate::rate_bs = (num_bytes * 1'000'000ull) / Rate::delta_us;
-}
-
-}; // namespace Rate
-
 static void rotations(St7796 &st7796);
 static void corner_pixels(St7796 &st7796);
 static void corner_squares(St7796 &st7796);
@@ -140,14 +119,15 @@ static void help()
 {
     printf("\n");
     printf("Usage: enter test number (0..%d)\n", num_tests - 1);
-    for (int i = 0; i < num_tests; i++) printf("%2d: %s\n", i, tests[i].name);
+    for (int i = 0; i < num_tests; i++)
+        printf("%2d: %s\n", i, tests[i].name);
     printf("\n");
 }
 
 
 static void reinit_screen(St7796 &lcd)
 {
-    // landscape, connector to the left, (0, 0) in lower left
+    // landscape, connector to the left
     lcd.rotation(St7796::Rotation::left);
 
     // fill with black
@@ -198,6 +178,7 @@ int main()
     lcd.brightness(100);
 
     help();
+    printf("> ");
 
     while (true) {
         int c = stdio_getchar_timeout_us(0);
@@ -222,6 +203,7 @@ int main()
                     printf("\n");
                     reinit_screen(lcd);
                     tests[test_num].func(lcd);
+                    printf("> ");
                 }
                 argv.reset();
             }
@@ -360,16 +342,9 @@ static void fill_rect_1(St7796 &st7796)
     const int color_cnt = sizeof(colors) / sizeof(colors[0]);
 
     for (int c_num = 0; c_num < color_cnt; c_num++) {
-        Rate::start();
         fb.fill_rect(0, 0, fb.width(), fb.height(), colors[c_num]);
-        Rate::stop(fb.width() * fb.height() * sizeof(Pixel565));
-        printf("fill_rect_1: filled in %lu us (%lu bytes/sec, %lu%%)\n",
-               Rate::delta_us, Rate::rate_bs,
-               (Rate::rate_bs * 100) / spi_rate_max);
         sleep_ms(100);
     }
-
-    printf("\n");
 }
 
 
@@ -397,7 +372,7 @@ static void fill_rect_2(St7796 &st7796)
             fb.fill_rect(hor, ver, hor_sz, ver_sz, colors[color]);
             if (++color >= color_cnt)
                 color = 0;
-            sleep_ms(10);
+            //sleep_ms(10);
         }
         if (++color >= color_cnt)
             color = 0;
@@ -608,89 +583,65 @@ static void print_string_4(St7796 &st7796)
 }
 
 
-constexpr Font img_chr_font = roboto_32;
-constexpr char img_chr_char = 'Q';
-constexpr int img_chr_wid = img_chr_font.info[int(img_chr_char)].x_adv;
-constexpr int img_chr_hgt = img_chr_font.y_adv;
-constexpr Color img_chr_fg = Color::red();
-constexpr Color img_chr_bg = Color::black();
+constexpr Font chr_font = roboto_32;
+constexpr char chr_char = 'Q';
+constexpr int chr_wid = chr_font.info[int(chr_char)].x_adv;
+constexpr int chr_hgt = chr_font.y_adv;
+constexpr Color chr_fg = Color::red();
+constexpr Color chr_bg = Color::black();
 
-constexpr PixelImage<Pixel565, img_chr_wid, img_chr_hgt> img_chr_img =
-    image_init<Pixel565, img_chr_char, img_chr_wid, img_chr_hgt> //
-    (img_chr_font, img_chr_fg, img_chr_bg);
+constexpr PixelImage<Pixel565, chr_wid, chr_hgt> chr_img =
+    image_init<Pixel565, chr_char, chr_wid, chr_hgt>(chr_font, chr_fg, chr_bg);
 
 static void img_chr(St7796 &st7796)
 {
-    const char *loc = mem_name(&img_chr_img);
+    const char *loc = mem_name(&chr_img);
 
-    printf("img_chr: writing %dw x %dh image from %s at 0x%p (%d bytes)\n", //
-           img_chr_img.width, img_chr_img.height, loc, &img_chr_img,
-           sizeof(img_chr_img.pixels));
+    printf("img_chr: writing %dw x %dh image from %s at 0x%p (%d bytes)\n",
+           chr_img.width, chr_img.height, loc, &chr_img,
+           sizeof(chr_img.pixels));
 
     int hor = 10;
     int ver = 10;
 
-    Rate::start();
-    st7796.write(hor, ver, img_chr_img.pixels, //
-                 img_chr_img.width, img_chr_img.height);
-    Rate::stop(sizeof(img_chr_img.pixels));
-    printf("img_chr: wrote in %lu us (%lu bytes/sec, %lu%%)\n", Rate::delta_us,
-           Rate::rate_bs, (Rate::rate_bs * 100) / spi_rate_max);
+    st7796.write(hor, ver, chr_img.width, chr_img.height, chr_img.pixels);
 
     ver += 40;
 
-    printf("img_chr: printing '%c'\n", img_chr_char);
+    printf("img_chr: printing '%c'\n", chr_char);
     Framebuffer &fb = st7796;
-    Rate::start();
-    fb.print(hor, ver, img_chr_char, img_chr_font, img_chr_fg, img_chr_bg);
-    Rate::stop(sizeof(img_chr_img.pixels));
-    printf("img_chr: printed in %lu us (%lu bytes/sec, %lu%%)\n",
-           Rate::delta_us, Rate::rate_bs, (Rate::rate_bs * 100) / spi_rate_max);
-
-    printf("\n");
+    fb.print(hor, ver, chr_char, chr_font, chr_fg, chr_bg);
 }
 
 
-constexpr Font img_str_font = roboto_32;
-constexpr char img_str_msg[] = "Hello, world!";
-constexpr int img_str_wid = img_str_font.width(img_str_msg);
-constexpr int img_str_hgt = img_str_font.y_adv;
-constexpr Color img_str_fg = Color::green();
-constexpr Color img_str_bg = Color::black();
+constexpr Font str_font = roboto_32;
+constexpr char str_msg[] = "Hello, world!";
+constexpr int str_wid = str_font.width(str_msg);
+constexpr int str_hgt = str_font.y_adv;
+constexpr Color str_fg = Color::green();
+constexpr Color str_bg = Color::black();
 
-constexpr PixelImage<Pixel565, img_str_wid, img_str_hgt> img_str_img =
-    image_init<Pixel565, img_str_msg, img_str_wid, img_str_hgt> //
-    (img_str_font, img_str_fg, img_str_bg);
+constexpr PixelImage<Pixel565, str_wid, str_hgt> str_img =
+    image_init<Pixel565, str_msg, str_wid, str_hgt>(str_font, str_fg, str_bg);
 
 static void img_str(St7796 &st7796)
 {
-    const char *loc = mem_name(&img_str_img);
+    const char *loc = mem_name(&str_img);
 
-    printf("img_str: writing %dw x %dh image from %s at 0x%p (%d bytes)\n", //
-           img_str_img.width, img_str_img.height, loc, &img_str_img,
-           sizeof(img_str_img.pixels));
+    printf("img_str: writing %dw x %dh image from %s at 0x%p (%d bytes)\n",
+           str_img.width, str_img.height, loc, &str_img,
+           sizeof(str_img.pixels));
 
     int hor = 10;
     int ver = 10;
 
-    Rate::start();
-    st7796.write(hor, ver, img_str_img.pixels, //
-                 img_str_img.width, img_str_img.height);
-    Rate::stop(sizeof(img_str_img.pixels));
-    printf("img_str: wrote in %lu us (%lu bytes/sec, %lu%%)\n", Rate::delta_us,
-           Rate::rate_bs, (Rate::rate_bs * 100) / spi_rate_max);
+    st7796.write(hor, ver, str_img.width, str_img.height, str_img.pixels);
 
     ver += 40;
 
-    printf("img_str: printing \"%s\"\n", img_str_msg);
+    printf("img_str: printing \"%s\"\n", str_msg);
     Framebuffer &fb = st7796;
-    Rate::start();
-    fb.print(hor, ver, img_str_msg, img_str_font, img_str_fg, img_str_bg);
-    Rate::stop(sizeof(img_str_img.pixels));
-    printf("img_str: printed in %lu us (%lu bytes/sec, %lu%%)\n",
-           Rate::delta_us, Rate::rate_bs, (Rate::rate_bs * 100) / spi_rate_max);
-
-    printf("\n");
+    fb.print(hor, ver, str_msg, str_font, str_fg, str_bg);
 }
 
 
@@ -952,7 +903,7 @@ static void img_btn(St7796 &st7796)
             assert(is_xip(btn_img[idx].pix));
             st7796.write(hor + img_btn_sz / 2 - btn_img[idx].wid / 2, //
                          ver + img_btn_sz / 2 - btn_img[idx].hgt / 2, //
-                         btn_img[idx].pix, btn_img[idx].wid, btn_img[idx].hgt);
+                         btn_img[idx].wid, btn_img[idx].hgt, btn_img[idx].pix);
             hor += img_btn_sz;
         }
         ver += img_btn_sz;
@@ -967,12 +918,13 @@ static void img_btn(St7796 &st7796)
         if ((i & 1) == 0) {
             // inverted
             //fb.draw_rect(hor, ver, img_btn_sz, img_btn_sz, img_btn_bg);
-            fb.fill_rect(hor + 1, ver + 1, img_btn_sz - 2, img_btn_sz - 2,
+            fb.fill_rect(hor + 1, ver + 1,               //
+                         img_btn_sz - 2, img_btn_sz - 2, //
                          img_btn_fg);
             st7796.write(hor + img_btn_sz / 2 - btn_img[btn_num].wid / 2,
                          ver + img_btn_sz / 2 - btn_img[btn_num].hgt / 2,
-                         img_btn_13_inv.pixels, btn_img[btn_num].wid,
-                         btn_img[btn_num].hgt);
+                         btn_img[btn_num].wid, btn_img[btn_num].hgt,
+                         img_btn_13_inv.pixels);
         } else {
             // not inverted
             //fb.draw_rect(hor, ver, img_btn_sz, img_btn_sz, img_btn_fg);
@@ -980,8 +932,8 @@ static void img_btn(St7796 &st7796)
                          img_btn_bg);
             st7796.write(hor + img_btn_sz / 2 - btn_img[btn_num].wid / 2,
                          ver + img_btn_sz / 2 - btn_img[btn_num].hgt / 2,
-                         img_btn_13.pixels, btn_img[btn_num].wid,
-                         btn_img[btn_num].hgt);
+                         btn_img[btn_num].wid, btn_img[btn_num].hgt,
+                         img_btn_13.pixels);
         }
         sleep_ms(1000);
     }

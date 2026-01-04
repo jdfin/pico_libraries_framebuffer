@@ -12,6 +12,8 @@
 #include "font.h"
 #include "framebuffer.h"
 #include "pixel_565.h"
+#include "spi_extra.h"
+#include "st7796_cmd.h"
 
 // It's not difficult to handle either 8-bit or 16-bit pixel transfers, but
 // the code is simpler if we just always require 16-bit pixel transfers.
@@ -38,7 +40,10 @@ public:
     // (For now, zero turns it off, nonzero turns it on)
     virtual void brightness(int brightness) override;
 
-    uint32_t spi_freq() const { return _spi_freq; }
+    uint32_t spi_freq() const
+    {
+        return _spi_freq;
+    }
 
     // orientation (where the connector is)
     enum class Rotation {
@@ -49,7 +54,11 @@ public:
     };
 
     void rotation(enum Rotation rot);
-    enum Rotation rotation() const { return _rotation; }
+
+    enum Rotation rotation() const
+    {
+        return _rotation;
+    }
 
     virtual void pixel(int h, int v, const Color c) override;
 
@@ -67,8 +76,7 @@ public:
                            const Color c) override;
 
     // write array of pixels to screen
-    void write(int h, int v,                    // where on screen to write
-               const void *px, int ph, int pv); // pixel array
+    void write(int hor, int ver, int wid, int hgt, const void *pixels);
 
     // print character to screen
     virtual void print(int h, int v, char c, const Font &font, //
@@ -102,112 +110,77 @@ private:
     uint _dma_ch;
     dma_channel_config _dma_cfg;
 
+    volatile bool _dma_running; // main/isr shared
+
+    bool busy() const
+    {
+        return _dma_running;
+    }
+
+    void busy(bool bz)
+    {
+        _dma_running = bz;
+    }
+
+    // Wait for all pending dma operations to complete
+    void wait_idle()
+    {
+        while (busy())
+            tight_loop_contents();
+    }
+
+    volatile uint16_t _dma_pixel; // isr/dma shared
+
+    // DMA interrupts: The mux in dma_irq_mux.c handles dma interrupts.
+    // Calling dma_irqn_mux_connect() connnects our handler to interrupts for
+    // our channel. When we connect to the mux, we provide a void* argument
+    // that is passed back to the handler on each interrupt. We this 'this'
+    // so the static handler (dma_raw_handler) can call the instance method
+    // (dma_handler).
+
+    // static handler called by dma_irq_mux.c
+    static void dma_raw_handler(void *arg)
+    {
+        ((St7796 *)arg)->dma_handler();
+    }
+
+    // instance method called by static handler
+    void dma_handler();
+
     enum Rotation _rotation;
 
+    // Calculate MADCTL value for current _rotation.
     uint8_t madctl() const;
 
     // this implies the "physical screen" is portrait
     static constexpr int phys_hgt = 480;
     static constexpr int phys_wid = 320;
 
-    // Working buffer used in a few places:
-    // * filling rectangles on screen (any size is okay, but bigger means
-    //   fewer transfers)
-    // * rendering character
-    // Supplied to constructor.
+    // Working buffer used to render character. Any size is okay, but bigger
+    // means fewer transfers. Supplied to constructor.
     static_assert(sizeof(Pixel565) == sizeof(uint16_t));
     Pixel565 *_pix_buf;
     int _pix_buf_len; // number of pixels
 
-    enum Cmd : uint8_t {
-        // Command Table 1
-        NOP = 0x00,       // No Op
-        SWRESET = 0x01,   // Software Reset
-        RDDID = 0x04,     // Read Display ID
-        RDNUMED = 0x05,   // Read Number of the Errors on DSI
-        RDDST = 0x09,     // Read Display Status
-        RDDPM = 0x0a,     // Read Display Power Mode
-        RDDMADCTL = 0x0b, // Read Display MADCTL
-        RDDCOLMOD = 0x0c, // Read Display Pixel Format
-        RDDIM = 0x0d,     // Read Display Image Mode
-        RDDSM = 0x0e,     // Read Display Signal Mode
-        RDDSDR = 0x0f,    // Read Display Self-Diagnostic Result
-        SLPIN = 0x10,     // Sleep in
-        SLPOUT = 0x11,    // Sleep Out
-        PTLON = 0x12,     // Partial Display Mode On
-        NORON = 0x13,     // Normal Display Mode On
-        INVOFF = 0x20,    // Display Inversion Off
-        INVON = 0x21,     // Display Inversion On
-        DISPOFF = 0x28,   // Display Off
-        DISPON = 0x29,    // Display On
-        CASET = 0x2a,     // Column Address Set
-        RASET = 0x2b,     // Row Address Set
-        RAMWR = 0x2c,     // Memory Write
-        RAMRD = 0x2e,     // Memory Read
-        PTLAR = 0x30,     // Partial Area
-        VSCRDEF = 0x33,   // Vertical Scrolling Definition
-        TEOFF = 0x34,     // Tearing Effect Line OFF
-        TEON = 0x35,      // Tearing Effect Line On
-        MADCTL = 0x36,    // Memory Data Access Control
-        VSCSAD = 0x37,    // Vertical Scroll Start Address of RAM
-        IDMOFF = 0x38,    // Idle Mode Off
-        IDMON = 0x39,     // Idle mode on
-        COLMOD = 0x3a,    // Interface Pixel Format
-        WRMEMC = 0x3c,    // Write Memory Continue
-        RDMEMC = 0x3e,    // Read Memory Continue
-        STE = 0x44,       // Set Tear Scanline
-        GSCAN = 0x45,     // Get Scanline
-        WRDISBV = 0x51,   // Write Display Brightness
-        RDDISBV = 0x52,   // Read Display Brightness Value
-        WRCTRLD = 0x53,   // Write CTRL Display
-        RDCTRLD = 0x54,   // Read CTRL value Display
-        WRCABC = 0x55,    // Write Adaptive Brightness Control
-        RDCABC = 0x56,    // Read Content Adaptive Brightness Control
-        WRCABCMB = 0x5e,  // Write CABC Minimum Brightness
-        RDCABCMB = 0x5f,  // Read CABC Minimum Brightness
-        RDFCS = 0xaa,     // Read First Checksum
-        RDCFCS = 0xaf,    // Read Continue Checksum
-        RDID1 = 0xda,     // Read ID1
-        RDID2 = 0xdb,     // Read ID2
-        RDID3 = 0xdc,     // Read ID3
-        // Command Table 2
-        IFMODE = 0xb0,   // Interface Mode Control
-        FRMCTR1 = 0xb1,  // Frame Rate Control (In Normal Mode/Full Colors)
-        FRMCTR2 = 0xb2,  // Frame Rate Control 2 (In Idle Mode/8 colors)
-        FRMCTR3 = 0xb3,  // Frame Rate Control3 (In Partial Mode/Full Colors)
-        DIC = 0xb4,      // Display Inversion Control
-        BPC = 0xb5,      // Blanking Porch Control
-        DFC = 0xb6,      // Display Function Control
-        EM = 0xb7,       //Entry Mode Set
-        PWR1 = 0xc0,     // Power Control 1
-        PWR2 = 0xc1,     // Power Control 2
-        PWR3 = 0xc2,     // Power Control 3
-        VCMPCTL = 0xc5,  // VCOM Control
-        VCMOFF = 0xc6,   // Vcom Offset Register
-        NVMADW = 0xd0,   // NVM Address/Data Write
-        NVMBPROG = 0xd1, // NVM Byte Program
-        NVMSTRD = 0xd2,  // NVM Status Read
-        RDID4 = 0xd3,    // Read ID4
-        PGC = 0xe0,      // Positive Gamma Control
-        NGC = 0xe1,      // Negative Gamma Control
-        DGC1 = 0xe2,     // Digital Gamma Control 1
-        DGC2 = 0xe3,     // Digital Gamma Control 2
-        DOCA = 0xe8,     // Display Output Ctrl Adjust
-        CSCON = 0xf0,    // Command Set Control
-        SPIRC = 0xfb,    // SPI Read Control
-    };
-
     static constexpr bool cs_assert = false;
     static constexpr bool cs_deassert = true;
-
-    void select() { gpio_put(_cs_pin, cs_assert); }
-    void deselect() { gpio_put(_cs_pin, cs_deassert); }
 
     static constexpr bool cd_gpio_command = false;
     static constexpr bool cd_gpio_data = true;
 
-    void data() { gpio_put(_cd_pin, cd_gpio_data); }
-    void command() { gpio_put(_cd_pin, cd_gpio_command); }
+    void data()
+    {
+        gpio_put(_cd_pin, cd_gpio_data);
+    }
+    void command()
+    {
+        gpio_put(_cd_pin, cd_gpio_command);
+    }
+
+    // write_cmds() takes an array of uint16_t. Each entry uses the upper
+    // byte to indicate command, data, or delay, and the lower byte is an
+    // associated value. The wr_* constants are or'ed into the upper byte,
+    // and a byte of command, data, or delay value is in the lower byte.
 
     static constexpr uint16_t wr_data = 0x0000;     // lsb is data
     static constexpr uint16_t wr_cmd = 0x0100;      // lsb is command
@@ -218,23 +191,84 @@ private:
 
     void set_window(uint16_t hor, uint16_t ver, uint16_t wid, uint16_t hgt);
 
-    void spi_cpu_blocking(const Pixel565 *pixel, int pixel_cnt)
+    inline void spi_wait()
     {
-        spi_set_format(_spi, 16, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
-        spi_write16_blocking(_spi, (const uint16_t *)(pixel), pixel_cnt);
-        spi_set_format(_spi, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
-    }
-
-    void spi_dma_blocking(const Pixel565 *pixel, int pixel_cnt, bool inc = true)
-    {
-        spi_set_format(_spi, 16, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
-        channel_config_set_read_increment(&_dma_cfg, inc);
-        dma_channel_configure(_dma_ch, &_dma_cfg, &spi_get_hw(_spi)->dr, pixel,
-                              pixel_cnt, true); // go!
-        dma_channel_wait_for_finish_blocking(_dma_ch);
-        // dma is done, but spi still going
         while (spi_is_busy(_spi))
             tight_loop_contents();
-        spi_set_format(_spi, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
+    }
+
+    inline void spi_write_command(uint8_t b0)
+    {
+        xassert(spi_get_bits(_spi) == 8);
+        command();
+        spi_get_hw(_spi)->dr = b0;
+        spi_wait();
+    }
+
+    inline void spi_write_data(uint8_t b0)
+    {
+        xassert(spi_get_bits(_spi) == 8);
+        data();
+        spi_get_hw(_spi)->dr = b0;
+        spi_wait();
+    }
+
+    inline void spi_write_data(uint16_t p0)
+    {
+        xassert(spi_get_bits(_spi) == 8);
+        data();
+        spi_get_hw(_spi)->dr = (uint32_t)(p0 >> 8);
+        spi_get_hw(_spi)->dr = (uint32_t)p0;
+        spi_wait();
+    }
+
+    inline void spi_write_data(uint8_t b0, uint8_t b1, uint8_t b2, uint8_t b3)
+    {
+        xassert(spi_get_bits(_spi) == 8);
+        data();
+        spi_get_hw(_spi)->dr = (uint32_t)b0;
+        spi_get_hw(_spi)->dr = (uint32_t)b1;
+        spi_get_hw(_spi)->dr = (uint32_t)b2;
+        spi_get_hw(_spi)->dr = (uint32_t)b3;
+        spi_wait();
+    }
+
+    // async support
+
+    static const int op_max = 4;
+
+    int _ops_stall_cnt; // times we had to wait for space in _ops[]
+
+    enum class AsyncOp : uint8_t { None, Fill, Copy, Max };
+
+    volatile struct {
+        AsyncOp op;
+        uint16_t hor, ver; // top left corner
+        uint16_t wid, hgt; // rectangle to fill or copy
+        union {
+            uint16_t pixel;     // pixel to fill with
+            const void *pixels; // pixels to copy from
+        };
+    } _ops[op_max]; // main/isr shared
+
+    volatile int _op_next; // index of next command to execute (main/isr shared)
+    volatile int _op_free; // index of next free slot (main/isr shared)
+    // op_next == op_free means empty
+    bool ops_empty()
+    {
+        return _op_next == _op_free;
+    }
+    // op_free + 1 == op_next (mod op_max) means full
+    bool ops_full()
+    {
+        return ((_op_free + 1) % op_max) == _op_next;
+    }
+    void op_next_inc()
+    {
+        _op_next = ((_op_next + 1) % op_max);
+    }
+    void op_free_inc()
+    {
+        _op_free = ((_op_free + 1) % op_max);
     }
 };
