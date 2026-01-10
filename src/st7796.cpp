@@ -440,65 +440,6 @@ void St7796::fill_rect(int hor, int ver, int wid, int hgt, const Color c)
 } // void St7796::fill_rect
 
 
-#if 0
-// write array of pixels to screen
-// ('hor', 'ver') is the top left pixel
-// 'wid' and 'hgt' are the number of pixels in each direction
-// The 'pixels' array is in Pixel565 format. It cannot be reused or
-// reallocated until the write is finished, which will be some time after
-// this function returns.
-void St7796::write(int hor, int ver, int wid, int hgt, const void *pixels)
-{
-    // can't start off the left edge or above the top
-    if (hor < 0 || ver < 0)
-        return;
-
-    // Don't try to go past right edge. Since (hor + wid) is the first pixel
-    // after the one we're writing, (hor + wid) == width is okay
-    if ((hor + wid) > width())
-        return;
-
-    // Don't try to go past bottom edge.
-    if ((ver + hgt) > height())
-        return;
-
-    if (ops_full()) {
-        // wait for space
-        _ops_stall_cnt++;
-        while (ops_full())
-            tight_loop_contents();
-    }
-
-    // if pixels is in XIP memory, use non-cached access
-    if (is_xip(pixels))
-        pixels = xip_nocache(pixels);
-
-    _ops[_op_free].op = AsyncOp::Copy;
-    _ops[_op_free].hor = uint16_t(hor);
-    _ops[_op_free].ver = uint16_t(ver);
-    _ops[_op_free].wid = uint16_t(wid);
-    _ops[_op_free].hgt = uint16_t(hgt);
-    _ops[_op_free].pixels = pixels;
-
-    // _ops[] must be visible in memory (to isr) before updating _op_free
-    __dmb();
-
-    uint32_t irq_state = save_and_disable_interrupts();
-
-    op_free_inc();
-
-    // force interrupt to start if it's there's not something already running
-    if (!busy()) {
-        dma_irqn_mux_force(0, _dma_ch, true);
-        busy(true);
-    }
-
-    restore_interrupts(irq_state);
-
-} // St7796::write
-#endif
-
-
 // write array of pixels to screen
 // ('hor', 'ver') is the top left pixel
 // 'pixels' points to a PixelImage, which contains width, height, and the
