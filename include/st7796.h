@@ -15,6 +15,7 @@
 #include "spi_extra.h"
 #include "st7796_cmd.h"
 
+
 // It's not difficult to handle either 8-bit or 16-bit pixel transfers, but
 // the code is simpler if we just always require 16-bit pixel transfers.
 static_assert(Pixel565::xfer_size == 16,
@@ -76,7 +77,12 @@ public:
                            const Color c) override;
 
     // write array of pixels to screen
-    void write(int hor, int ver, int wid, int hgt, const void *pixels);
+    //void write(int hor, int ver, int wid, int hgt, const void *pixels) override;
+
+    // Write array of pixels to screen.
+    // 'pixels' is a pointer to a PixelImage<Pixel565, wid, hgt>, and we use a
+    // PixelImageInfo to get wid and hgt.
+    void write(int hor, int ver, const void *pixels) override;
 
     // print character to screen
     virtual void print(int h, int v, char c, const Font &font, //

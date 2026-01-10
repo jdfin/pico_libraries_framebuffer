@@ -37,6 +37,11 @@ public:
     // fill rectangle
     virtual void fill_rect(int h, int v, int wid, int hgt, const Color c);
 
+    // write array of pixels to screen
+    // Subclass will interpret what 'pixels' points to (sorry).
+    // It must include at least the size (wid x hgt) and pixel data.
+    virtual void write(int hor, int ver, const void *pixels) = 0;
+
     // Bit mask controlling which quadrants get drawn in circle methods:
     //   bit 0 -> quadrant 1, (+, +), lower right
     //   bit 1 -> quadrant 2, (-, +), lower left

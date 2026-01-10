@@ -7,6 +7,7 @@ target_sources(framebuffer INTERFACE
 
 target_include_directories(framebuffer INTERFACE 
     ${CMAKE_CURRENT_LIST_DIR}/include
+    ${CMAKE_CURRENT_LIST_DIR}/fonts
 )
 
 target_link_libraries(framebuffer INTERFACE

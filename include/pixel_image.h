@@ -1,8 +1,26 @@
-// compile-time image creation
+#pragma once
+
+#include <cstdint>
 
 #include "color.h"
 #include "font.h"
 
+// Compile-time image creation.
+
+// The motivations are:
+// 1. We have much more flash storage than RAM. A full 480x320x2 image is 300K,
+//    which is more than the 264K RAM on a RP2040.
+// 2. Rendering fonts at runtime is not particularly slow, but not as fast as
+//    just pulling the pre-rendered images from flash.
+// 3. If the entire image is in flash, we can DMA it directly from there to
+//    the display, without needing to first copy it into RAM.
+
+// This is the structure built at compile time that can end up in flash
+// (constexpr).
+//
+// Making it so it could go in flash (and keeping it that way) was tricky
+// (for me). If anything is changed in here, make sure the resulting images
+// are still going in flash.
 
 template <typename PIXEL, int wid, int hgt>
 struct PixelImage {
@@ -11,62 +29,64 @@ struct PixelImage {
     PIXEL pixels[wid * hgt];
 };
 
+// If we have a pointer to a PixelImage, we can use this to see how big it is
+// and where the pixel data starts. To _build_ it we need the templatized one
+// above, but to _use_ it at runtime we just need this.
+struct PixelImageInfo {
+    int wid;
+    int hgt;
+    uint8_t pixels[0];
+};
 
-// create an image from a character in a font
-// 'wid' is the character box width in pixels
-// 'hgt' is the character box height in pixels
-template <typename PIXEL, char ch, int wid, int hgt>
-static constexpr PixelImage<PIXEL, wid, hgt> image_init(const Font font,
-                                                        Color fg, Color bg)
+
+// Create a boxed label (string surrounded by outline box).
+//
+// The resulting image is specified in the parameters, but should be at least
+// the size of the string image plus the outline box.
+//
+// Function template parameters:
+//  PIXEL       pixel type (e.g., Pixel565)
+//  wid         image width in pixels
+//  hgt         image height in pixels
+//
+// Return type template parameters:
+//  PIXEL       pixel type (e.g., Pixel565) (same as function template)
+//  wid         image width in pixels (same as function template)
+//  hgt         image height in pixels (same as function template)
+//
+// Function call parameters:
+//  text        string to render
+//  font        font to use
+//  text_clr    text color
+//  bord_thk    thickness of border in pixels (0 or more)
+//  bord_clr    border color
+//  bgnd_clr    background color
+//
+template <typename PIXEL, int wid, int hgt>
+static constexpr PixelImage<PIXEL, wid, hgt>                  //
+label_img(const char text[], const Font font, Color text_clr, //
+          int bord_thk, Color bord_clr, Color bgnd_clr)
 {
     PixelImage<PIXEL, wid, hgt> img{};
-    const int ci = int(ch);
-    const uint8_t *gs = font.data + font.info[ci].off;
-    // width of character box
-    const int x_adv = font.info[ci].x_adv;
-    // offsets of glyph within character box
-    const int x_off = font.info[ci].x_off;
-    const int y_off = font.info[ci].y_off;
-    // glyph size (usually smaller than character box)
-    const int g_wid = font.info[ci].w;
-    const int g_hgt = font.info[ci].h;
-    // (row, col) covers character box
-    for (int row = 0; row < font.y_adv; row++) {
-        for (int col = 0; col < x_adv; col++) {
-            // see if the glyph covers this pixel in the character box
-            if (row >= y_off && row < (y_off + g_hgt) && //
-                col >= x_off && col < (x_off + g_wid)) {
-                // yes, interpolate from bg to fg based on glyph grayscale
-                int g_row = row - y_off;
-                int g_col = col - x_off;
-                uint8_t gray = gs[g_row * g_wid + g_col];
-                img.pixels[row * x_adv + col] =
-                    Color::interpolate(gray, bg, fg);
+    // outline and background
+    for (int row = 0; row < hgt; row++) {
+        for (int col = 0; col < wid; col++) {
+            if (row < bord_thk || row >= (hgt - bord_thk) || //
+                col < bord_thk || col >= (wid - bord_thk)) {
+                img.pixels[row * wid + col] = bord_clr;
             } else {
-                // nope, it's background
-                img.pixels[row * x_adv + col] = bg;
+                img.pixels[row * wid + col] = bgnd_clr;
             }
         }
     }
-    return img;
-}
-
-
-// create an image from a string in a font
-// 'wid' is the string box width in pixels
-// 'hgt' is the string box height in pixels
-template <typename PIXEL, const char s[], int wid, int hgt>
-static constexpr PixelImage<PIXEL, wid, hgt> image_init(const Font font,
-                                                        Color fg, Color bg)
-{
-    PixelImage<PIXEL, wid, hgt> img{};
-    int x_off = 0;
+    int x_off = (wid - font.width(text)) / 2;
+    int y_off = (hgt - font.height()) / 2;
     // for each character in the string
-    const char *s1 = s;
-    while (*s1 != '\0') {
-        const char ch = *s1;
+    const char *s = text;
+    while (*s != '\0') {
+        const char ch = *s;
         const int ci = int(ch);
-        const uint8_t *gs = font.data + font.info[ci].off;
+        const uint8_t *gs = font.data + font.info[ci].off; // grayscale
         // width of character box
         const int x_adv = font.info[ci].x_adv;
         // offsets of glyph within character box
@@ -81,20 +101,20 @@ static constexpr PixelImage<PIXEL, wid, hgt> image_init(const Font font,
                 // see if the glyph covers this pixel in the character box
                 if (row >= ch_y_off && row < (ch_y_off + g_hgt) && //
                     col >= ch_x_off && col < (ch_x_off + g_wid)) {
-                    // yes, interpolate from bg to fg based on glyph grayscale
+                    // yes, interpolate from bgnd_clr to fg based on glyph grayscale
                     int g_row = row - ch_y_off;
                     int g_col = col - ch_x_off;
                     uint8_t gray = gs[g_row * g_wid + g_col];
-                    img.pixels[row * wid + (x_off + col)] =
-                        Color::interpolate(gray, bg, fg);
+                    img.pixels[(row + y_off) * wid + (x_off + col)] =
+                        Color::interpolate(gray, bgnd_clr, text_clr);
                 } else {
                     // nope, it's background
-                    img.pixels[row * wid + (x_off + col)] = bg;
+                    img.pixels[(row + y_off) * wid + (x_off + col)] = bgnd_clr;
                 }
             }
         }
         x_off += x_adv; // next character box start
-        s1++;           // next character in string
+        s++;            // next character in string
     }
     return img;
 }
