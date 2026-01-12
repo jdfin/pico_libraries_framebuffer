@@ -9,19 +9,69 @@ class Framebuffer
 public:
 
     Framebuffer(int width, int height) :
+        _phys_wid(width),
+        _phys_hgt(height),
         _width(width),
         _height(height),
-        _brightness_pct(0)
+        _brightness_pct(0),
+        _rotation(Rotation::landscape)
     {
+        // initialization of width, height, and rotation assume we
+        // start out in landscape mode and _phys_wid >= _phys_hgt
+        xassert(_rotation == Rotation::landscape || _rotation == Rotation::landscape2);
+        xassert(_phys_wid >= _phys_hgt);
     }
 
-    virtual ~Framebuffer() {}
+    virtual ~Framebuffer() = default;
 
-    virtual void brightness(int) {}
-    virtual int brightness() { return _brightness_pct; }
+    virtual void brightness(int)
+    {
+    }
+    virtual int brightness()
+    {
+        return _brightness_pct;
+    }
 
-    int width() const { return _width; }
-    int height() const { return _height; }
+    int width() const
+    {
+        return _width;
+    }
+
+    int height() const
+    {
+        return _height;
+    }
+
+    // orientation
+    enum class Rotation {
+        portrait,   // portrait
+        landscape,  // landscape, 90 degrees clockwise
+        portrait2,  // portrait, 180 degrees from portrait
+        landscape2, // landscape, 180 degrees from landscape
+    };
+
+    virtual void set_rotation(Rotation r)
+    {
+        // subclass should do most of the work
+        _rotation = r;
+        if (_rotation == Rotation::landscape ||
+            _rotation == Rotation::landscape2) {
+            _width = _phys_wid;
+            _height = _phys_hgt;
+            xassert(_width >= _height);
+        } else {
+            xassert(_rotation == Rotation::portrait ||
+                    _rotation == Rotation::portrait2);
+            _width = _phys_hgt;
+            _height = _phys_wid;
+            xassert(_width <= _height);
+        }
+    }
+
+    Rotation get_rotation() const
+    {
+        return _rotation;
+    }
 
     // set a pixel to specified color
     virtual void pixel(int h, int v, const Color c) = 0;
@@ -86,10 +136,16 @@ public:
 
 protected:
 
+    const int _phys_wid;
+    const int _phys_hgt;
+
+    // these two depend on rotation
     int _width;
     int _height;
 
     int _brightness_pct; // percent, 0..100
+
+    Rotation _rotation;
 
     bool q1(Quadrant q)
     {

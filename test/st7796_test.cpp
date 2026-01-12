@@ -157,7 +157,7 @@ static void help()
 static void reinit_screen(St7796 &lcd)
 {
     // landscape, connector to the left
-    lcd.rotation(St7796::Rotation::left);
+    lcd.set_rotation(Framebuffer::Rotation::landscape);
 
     // fill with black
     lcd.fill_rect(0, 0, lcd.width(), lcd.height(), Color::black());
@@ -187,8 +187,8 @@ int main()
     Argv argv(1); // verbosity == 1 means echo
 
     St7796 lcd(spi0, spi_miso_pin, spi_mosi_pin, spi_clk_pin, spi_cs_pin,
-               spi_baud_request, lcd_cd_pin, lcd_rst_pin, lcd_led_pin, work,
-               work_bytes);
+               spi_baud_request, lcd_cd_pin, lcd_rst_pin, lcd_led_pin, 480, 320,
+               work, work_bytes);
 
     spi_baud_actual = lcd.spi_freq();
     spi_rate_max = spi_baud_actual / 8;
@@ -263,20 +263,20 @@ static void rotations(St7796 &st7796)
     fb.fill_rect(0, 0, fb.width(), fb.height(), Color::black());
     sleep_ms(100);
 
-    st7796.rotation(St7796::Rotation::bottom);
-    mark_origin(fb, "Rotation::bottom", Color::red());
+    fb.set_rotation(Framebuffer::Rotation::portrait);
+    mark_origin(fb, "Rotation::portrait", Color::red());
     sleep_ms(delay_ms);
 
-    st7796.rotation(St7796::Rotation::left);
-    mark_origin(fb, "Rotation::left", Color::lime());
+    fb.set_rotation(Framebuffer::Rotation::landscape);
+    mark_origin(fb, "Rotation::landscape", Color::lime());
     sleep_ms(delay_ms);
 
-    st7796.rotation(St7796::Rotation::top);
-    mark_origin(fb, "Rotation::top", Color::light_blue());
+    fb.set_rotation(Framebuffer::Rotation::portrait2);
+    mark_origin(fb, "Rotation::portrait2", Color::light_blue());
     sleep_ms(delay_ms);
 
-    st7796.rotation(St7796::Rotation::right);
-    mark_origin(fb, "Rotation::right", Color::white());
+    fb.set_rotation(Framebuffer::Rotation::landscape2);
+    mark_origin(fb, "Rotation::landscape2", Color::white());
     sleep_ms(delay_ms);
 }
 

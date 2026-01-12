@@ -27,9 +27,9 @@ class St7796 : public Framebuffer
 public:
 
     // baud normally 15'000'000
-    St7796(spi_inst_t *spi, int miso_pin, int mosi_pin, int clk_pin, int cs_pin,
-           int baud, int cd_pin, int rst_pin, int bk_pin, void *work = nullptr,
-           int work_bytes = 0);
+    St7796(spi_inst_t *spi, int miso_pin, int mosi_pin, int clk_pin,  //
+           int cs_pin, int baud, int cd_pin, int rst_pin, int bk_pin, //
+           int width, int height, void *work = nullptr, int work_bytes = 0);
 
     virtual ~St7796();
 
@@ -46,20 +46,7 @@ public:
         return _spi_freq;
     }
 
-    // orientation (where the connector is)
-    enum class Rotation {
-        bottom, // portrait, connector at bottom
-        left,   // landscape, connector to left
-        top,    // portrait, connecter at top
-        right,  // landscape, connector to right
-    };
-
-    void rotation(enum Rotation rot);
-
-    enum Rotation rotation() const
-    {
-        return _rotation;
-    }
+    virtual void set_rotation(Rotation r) override;
 
     virtual void pixel(int h, int v, const Color c) override;
 
@@ -75,9 +62,6 @@ public:
 
     virtual void fill_rect(int h, int v, int wid, int hgt,
                            const Color c) override;
-
-    // write array of pixels to screen
-    //void write(int hor, int ver, int wid, int hgt, const void *pixels) override;
 
     // Write array of pixels to screen.
     // 'pixels' is a pointer to a PixelImage<Pixel565, wid, hgt>, and we use a
@@ -153,14 +137,8 @@ private:
     // instance method called by static handler
     void dma_handler();
 
-    enum Rotation _rotation;
-
-    // Calculate MADCTL value for current _rotation.
+    // Calculate MADCTL value for current rotation.
     uint8_t madctl() const;
-
-    // this implies the "physical screen" is portrait
-    static constexpr int phys_hgt = 480;
-    static constexpr int phys_wid = 320;
 
     // Working buffer used to render character. Any size is okay, but bigger
     // means fewer transfers. Supplied to constructor.

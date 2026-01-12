@@ -23,8 +23,8 @@
 
 St7796::St7796(spi_inst_t *spi, int miso_pin, int mosi_pin, int clk_pin,
                int cs_pin, int baud, int cd_pin, int rst_pin, int bk_pin,
-               void *work, int work_bytes) :
-    Framebuffer(phys_wid, phys_hgt),
+               int width, int height, void *work, int work_bytes) :
+    Framebuffer(width, height),
     _spi(spi),
     _spi_freq(0),
     _miso_pin(miso_pin),
@@ -39,7 +39,6 @@ St7796::St7796(spi_inst_t *spi, int miso_pin, int mosi_pin, int clk_pin,
     // _dma_cfg
     _dma_running(false),
     _dma_pixel(0),
-    _rotation(Rotation::bottom),
     _pix_buf((Pixel565 *)work),
     _pix_buf_len(work_bytes / sizeof(Pixel565)),
     // _ops[]
@@ -95,15 +94,7 @@ St7796::St7796(spi_inst_t *spi, int miso_pin, int mosi_pin, int clk_pin,
 
 St7796::~St7796()
 {
-#if 1
-    // Waveshare
-#else
-    // Hosyond
-    // After gpio_deinit, the pullup on the backlight will set the
-    // signal high (it is not off)
-    if (_bk_pin >= 0)
-        gpio_deinit(_bk_pin);
-#endif
+    // probably much to do
 }
 
 
@@ -226,18 +217,9 @@ void St7796::brightness(int brightness_pct)
 }
 
 
-void St7796::rotation(enum Rotation rot)
+void St7796::set_rotation(Rotation r)
 {
-    _rotation = rot;
-    if (_rotation == Rotation::bottom || _rotation == Rotation::top) {
-        // portrait
-        _width = phys_wid;
-        _height = phys_hgt;
-    } else {
-        // landscape
-        _width = phys_hgt;
-        _height = phys_wid;
-    }
+    Framebuffer::set_rotation(r);
 
     wait_idle(); // wait for any queued dmas to finish
 
@@ -256,14 +238,14 @@ void St7796::rotation(enum Rotation rot)
 //   04 MH  horizontal refresh order (always 0)
 uint8_t St7796::madctl() const
 {
-    if (_rotation == Rotation::bottom) {
+    if (get_rotation() == Rotation::portrait) {
         return 0x48;
-    } else if (_rotation == Rotation::left) {
+    } else if (get_rotation() == Rotation::landscape) {
         return 0xe8;
-    } else if (_rotation == Rotation::top) {
+    } else if (get_rotation() == Rotation::portrait2) {
         return 0x88;
     } else {
-        xassert(_rotation == Rotation::right);
+        xassert(get_rotation() == Rotation::landscape2);
         return 0x28;
     }
 }
