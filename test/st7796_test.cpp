@@ -78,39 +78,39 @@ static const int work_bytes = 128;
 static uint8_t work[work_bytes];
 
 // clang-format off
-static void rotations(St7796 &st7796);
-static void corner_pixels(St7796 &st7796);
-static void corner_squares(St7796 &st7796);
-static void line_1(St7796 &st7796);
-static void hline_1(St7796 &st7796);
-static void colors_1(St7796 &st7796);
-static void colors_2(St7796 &st7796);
-static void colors_3(St7796 &st7796);
-static void draw_rect_1(St7796 &st7796);
-static void draw_rect_2(St7796 &st7796);
-static void fill_rect_1(St7796 &st7796);
-static void fill_rect_2(St7796 &st7796);
-static void fill_rect_3(St7796 &st7796);
-static void draw_circle_1(St7796 &st7796);
-static void draw_circle_2(St7796 &st7796);
-static void draw_circle_aa_1(St7796 &st7796);
-static void draw_circle_aa_2(St7796 &st7796);
-static void print_char_1(St7796 &st7796);
-static void print_string_1(St7796 &st7796);
-static void print_string_2(St7796 &st7796);
-static void print_string_3(St7796 &st7796);
-static void print_string_4(St7796 &st7796);
-namespace ImgChar { static void run(St7796 &st7796); }
-namespace ImgString { static void run(St7796 &st7796); }
-namespace ImgButton { static void run(St7796 &st7796); }
-namespace Label1 { static void run(St7796 &st7796); }
-namespace Font1 { static void run(St7796 &st7796); };
-namespace Screen { static void run(St7796 &st7796); };
+static void rotations(Framebuffer &fb);
+static void corner_pixels(Framebuffer &fb);
+static void corner_squares(Framebuffer &fb);
+static void line_1(Framebuffer &fb);
+static void hline_1(Framebuffer &fb);
+static void colors_1(Framebuffer &fb);
+static void colors_2(Framebuffer &fb);
+static void colors_3(Framebuffer &fb);
+static void draw_rect_1(Framebuffer &fb);
+static void draw_rect_2(Framebuffer &fb);
+static void fill_rect_1(Framebuffer &fb);
+static void fill_rect_2(Framebuffer &fb);
+static void fill_rect_3(Framebuffer &fb);
+static void draw_circle_1(Framebuffer &fb);
+static void draw_circle_2(Framebuffer &fb);
+static void draw_circle_aa_1(Framebuffer &fb);
+static void draw_circle_aa_2(Framebuffer &fb);
+static void print_char_1(Framebuffer &fb);
+static void print_string_1(Framebuffer &fb);
+static void print_string_2(Framebuffer &fb);
+static void print_string_3(Framebuffer &fb);
+static void print_string_4(Framebuffer &fb);
+namespace ImgChar { static void run(Framebuffer &fb); }
+namespace ImgString { static void run(Framebuffer &fb); }
+namespace ImgButton { static void run(Framebuffer &fb); }
+namespace Label1 { static void run(Framebuffer &fb); }
+namespace Font1 { static void run(Framebuffer &fb); };
+namespace Screen { static void run(Framebuffer &fb); };
 // clang-format on
 
 static struct {
     const char *name;
-    void (*func)(St7796 &);
+    void (*func)(Framebuffer &);
 } tests[] = {
     {"rotations", rotations},
     {"corner_pixels", corner_pixels},
@@ -154,7 +154,7 @@ static void help()
 }
 
 
-static void reinit_screen(St7796 &lcd)
+static void reinit_screen(Framebuffer &lcd)
 {
     // landscape, connector to the left
     lcd.set_rotation(Framebuffer::Rotation::landscape);
@@ -255,10 +255,9 @@ static void mark_origin(Framebuffer &fb, const char *label, const Color c)
 }
 
 
-static void rotations(St7796 &st7796)
+static void rotations(Framebuffer &fb)
 {
     const uint32_t delay_ms = 2000;
-    Framebuffer &fb = st7796;
 
     fb.fill_rect(0, 0, fb.width(), fb.height(), Color::black());
     sleep_ms(100);
@@ -281,9 +280,8 @@ static void rotations(St7796 &st7796)
 }
 
 
-static void corner_pixels(St7796 &st7796)
+static void corner_pixels(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
     const Color c = Color::white();
     fb.pixel(0, 0, c);
     fb.pixel(0, fb.height() - 1, c);
@@ -292,9 +290,8 @@ static void corner_pixels(St7796 &st7796)
 }
 
 
-static void corner_squares(St7796 &st7796)
+static void corner_squares(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
     const int size = 10;
     for (int i = 0; i < size; i++) {
         for (int j = 0; j < size; j++) {
@@ -307,9 +304,8 @@ static void corner_squares(St7796 &st7796)
 }
 
 
-static void line_1(St7796 &st7796)
+static void line_1(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
     const Color c = Color::white();
     int w1 = fb.width() - 1;
     int h1 = fb.height() - 1;
@@ -320,10 +316,9 @@ static void line_1(St7796 &st7796)
 }
 
 
-static void hline_1(St7796 &st7796)
+static void hline_1(Framebuffer &fb)
 {
     // should be able to see that each successive line drawn is one pixel shorter
-    Framebuffer &fb = st7796;
     const Color c = Color::white();
     fb.line(0, 0, fb.width() - 1, 0, c);
     fb.line(0, 2, fb.width() - 2, 2, c);
@@ -339,9 +334,8 @@ static void hline_1(St7796 &st7796)
 // to happen in the bottom half, i.e. brighness 0..127 seems to vary
 // less than brightness 128..255.
 //
-static void colors_1(St7796 &st7796)
+static void colors_1(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
 
     // landscape, 64 brightness levels, 5 pixels per level
     const int levels = 64;
@@ -384,10 +378,8 @@ static void colors_1(St7796 &st7796)
 // - Vertical axis: Top half shows saturation levels (100% brightness)
 //                  Bottom half shows brightness levels (100% saturation)
 //
-static void colors_3(St7796 &st7796)
+static void colors_3(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
-
     // Landscape mode: 480 wide x 320 high
     xassert(fb.width() == 480 && fb.height() == 320);
 
@@ -443,9 +435,8 @@ static void colors_3(St7796 &st7796)
 //   magenta (255,0,255)
 //   magenta to red (decreasing blue)
 //   red (255,0,0)
-static void colors_2(St7796 &st7796)
+static void colors_2(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
     const int ver_levels = 64;
     const int hgt_box = fb.height() / ver_levels;
     // horizontal levels: 6 blends * 64 levels each = 384, so 1 pixel per level
@@ -482,16 +473,14 @@ static void colors_2(St7796 &st7796)
 }
 
 
-static void draw_rect_1(St7796 &st7796)
+static void draw_rect_1(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
     fb.draw_rect(0, 0, fb.width(), fb.height(), Color::white());
 }
 
 
-static void draw_rect_2(St7796 &st7796)
+static void draw_rect_2(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
     uint16_t wid = fb.width();
     uint16_t hgt = fb.height();
     uint16_t hor = 0;
@@ -508,9 +497,8 @@ static void draw_rect_2(St7796 &st7796)
 }
 
 
-static void fill_rect_1(St7796 &st7796)
+static void fill_rect_1(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
     const Color colors[] = {
         Color::red(),    Color::green(),   Color::blue(),   //
         Color::yellow(), Color::magenta(), Color::cyan(),   //
@@ -526,10 +514,8 @@ static void fill_rect_1(St7796 &st7796)
 }
 
 
-static void fill_rect_2(St7796 &st7796)
+static void fill_rect_2(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
-
     // Using the "argument" version of the colors means we're getting 0x00
     // or 0xff for each color component. E.g. green(0) is (0x00,0xff,0x00)
     // (from color.h) but green() is (0x00,0x80,0x00) (from color_html.h).
@@ -566,10 +552,8 @@ static void fill_rect_2(St7796 &st7796)
 }
 
 
-static void fill_rect_3(St7796 &st7796)
+static void fill_rect_3(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
-
     // Recall that the display's color resolution is 5 bits red, 6 bits green,
     // 5 bits blue. In landscape mode we have 320 pixels vertically, which can
     // divide into bands 5 pixels high for 64 levels (6 bits per color) of
@@ -609,16 +593,14 @@ static void fill_rect_3(St7796 &st7796)
 }
 
 
-static void draw_circle_1(St7796 &st7796)
+static void draw_circle_1(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
     fb.draw_circle(100, 100, 100, Color::white());
 }
 
 
-static void draw_circle_2(St7796 &st7796)
+static void draw_circle_2(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
     int h = fb.width() / 2;
     int v = fb.height() / 2;
     int r = h < v ? h : v;
@@ -634,9 +616,8 @@ static void draw_circle_2(St7796 &st7796)
 }
 
 
-static void draw_circle_aa_1(St7796 &st7796)
+static void draw_circle_aa_1(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
     const int h = fb.width() / 2;
     const int v = fb.height() / 2;
     const int r = (h < v ? h : v) - 20;
@@ -646,9 +627,8 @@ static void draw_circle_aa_1(St7796 &st7796)
 }
 
 
-static void draw_circle_aa_2(St7796 &st7796)
+static void draw_circle_aa_2(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
     const int h = fb.width() / 2;
     const int v = fb.height() / 2;
     const int r_max = h < v ? h : v;
@@ -659,9 +639,8 @@ static void draw_circle_aa_2(St7796 &st7796)
 
 // Should result in a gray50 background, a 1-pixel black box near the middle,
 // a 1-pixel gray50 box inside that one, then a black-on-white character
-static void print_char_1(St7796 &st7796)
+static void print_char_1(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
     // background
     fb.fill_rect(0, 0, fb.width(), fb.height(), Color::gray(50));
     // somewhere near the middle, not exactly
@@ -678,9 +657,8 @@ static void print_char_1(St7796 &st7796)
 }
 
 
-static void print_string_1(St7796 &st7796)
+static void print_string_1(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
     fb.fill_rect(0, 0, fb.width(), fb.height(), Color::white());
 
     uint16_t hor = 20;
@@ -691,9 +669,8 @@ static void print_string_1(St7796 &st7796)
 }
 
 
-static void print_string_2(St7796 &st7796)
+static void print_string_2(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
     fb.fill_rect(0, 0, fb.width(), fb.height(), Color::gray(50));
 
     int hor = fb.width() / 2;
@@ -705,9 +682,8 @@ static void print_string_2(St7796 &st7796)
 }
 
 
-static void print_string_3(St7796 &st7796)
+static void print_string_3(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
     fb.fill_rect(0, 0, fb.width(), fb.height(), Color::gray(50));
 
     // thin border around edge lets us see when we plot and edge pixel
@@ -767,9 +743,8 @@ static void print_string_3(St7796 &st7796)
 }
 
 
-static void print_string_4(St7796 &st7796)
+static void print_string_4(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
     const char *s1 = " >";
     const char *s2 = "< ";
     const int s1_wid = font.width(s1);
@@ -824,10 +799,8 @@ static constexpr Color bg = Color::gray(80);
 static constexpr PixelImage<Pixel565, wid, hgt> img =
     label_img<Pixel565, wid, hgt>(ch, font, fg, 0, fg, bg);
 
-static void run(St7796 &st7796)
+static void run(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
-
     const char *loc = mem_name(&(img.pixels[0]));
 
     printf("ImgChar: writing %dw x %dh image from %s at 0x%p (%d bytes)\n",
@@ -860,10 +833,8 @@ static constexpr Color bg = Color::gray(80);
 static constexpr PixelImage<Pixel565, wid, hgt> img =
     label_img<Pixel565, wid, hgt>(msg, font, fg, 0, fg, bg);
 
-static void run(St7796 &st7796)
+static void run(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
-
     const char *loc = mem_name(&img);
 
     printf("ImgString: writing %dw x %dh image from %s at 0x%p (%d bytes)\n",
@@ -1041,10 +1012,8 @@ const PixelImageInfo *btn_img[30] = {
     (PixelImageInfo *)&btn_28, (PixelImageInfo *)&btn_29,
 };
 
-static void run(St7796 &st7796)
+static void run(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
-
     // clear screen
     fb.fill_rect(0, 0, fb.width(), fb.height(), bg);
 
@@ -1145,10 +1114,8 @@ static constexpr PixelImage<Pixel565, l3_wid, l3_hgt> l3d =
     label_img<Pixel565, l3_wid, l3_hgt>(l3d_txt, font, l3d_fg, //
                                         l3d_thk, l3d_box, l3d_bg);
 
-static void run(St7796 &st7796)
+static void run(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
-
     // clear screen
     fb.fill_rect(0, 0, fb.width(), fb.height(), bg);
 
@@ -1278,10 +1245,8 @@ static constexpr int hgt_48 = roboto_48.y_adv;
 static constexpr PixelImage<Pixel565, wid_48, hgt_48> img_48 =
     label_img<Pixel565, wid_48, hgt_48>(msg_48, roboto_48, fg, 0, fg, bg);
 
-static void run(St7796 &st7796)
+static void run(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
-
     int hor = 10;
     int ver = 10;
 
@@ -1538,10 +1503,8 @@ static void draw(Framebuffer &fb)
 
 } // namespace Slider
 
-static void run(St7796 &st7796)
+static void run(Framebuffer &fb)
 {
-    Framebuffer &fb = st7796;
-
     fb.fill_rect(0, 0, fb.width(), fb.height(), bg);
 
     Nav::draw(fb, 0);
