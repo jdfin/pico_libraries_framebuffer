@@ -2,6 +2,7 @@
 
 #include "color.h"
 #include "font.h"
+#include "xassert.h"
 
 
 class Framebuffer
@@ -16,9 +17,10 @@ public:
         _brightness_pct(0),
         _rotation(Rotation::landscape)
     {
-        // initialization of width, height, and rotation assume we
-        // start out in landscape mode and _phys_wid >= _phys_hgt
-        xassert(_rotation == Rotation::landscape || _rotation == Rotation::landscape2);
+        // Initialization of width, height, and rotation assume we
+        // start out in landscape mode and _phys_wid >= _phys_hgt.
+        xassert(_rotation == Rotation::landscape ||
+                _rotation == Rotation::landscape2);
         xassert(_phys_wid >= _phys_hgt);
     }
 
