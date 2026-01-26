@@ -1,12 +1,12 @@
 #pragma once
 
+#include <cassert>
 #include <cstdint>
 //
 #include "hardware/dma.h"
 #include "hardware/gpio.h"
 #include "hardware/spi.h"
 #include "pico/stdlib.h"
-#include "xassert.h"
 //
 #include "color.h"
 #include "font.h"
@@ -66,11 +66,17 @@ public:
     // Write array of pixels to screen.
     // 'pixels' is a pointer to a PixelImage<Pixel565, wid, hgt>, and we use a
     // PixelImageInfo to get wid and hgt.
-    void write(int hor, int ver, const void *pixels) override;
+    virtual void write(int hor, int ver, const void *pixels,
+                       HAlign align = HAlign::Left) override;
+
+    virtual void write(int hor, int ver, int num, const void **dig_img, //
+                       HAlign align = HAlign::Left,                     //
+                       int *wid = nullptr, int *hgt = nullptr) override;
 
     // print character to screen
     virtual void print(int h, int v, char c, const Font &font, //
-                       const Color fg, const Color bg, int align) override;
+                       const Color fg, const Color bg,
+                       HAlign align = HAlign::Left) override;
 
 private:
 
@@ -183,7 +189,7 @@ private:
 
     inline void spi_write_command(uint8_t b0)
     {
-        xassert(spi_get_bits(_spi) == 8);
+        assert(spi_get_bits(_spi) == 8);
         command();
         spi_get_hw(_spi)->dr = b0;
         spi_wait();
@@ -191,7 +197,7 @@ private:
 
     inline void spi_write_data(uint8_t b0)
     {
-        xassert(spi_get_bits(_spi) == 8);
+        assert(spi_get_bits(_spi) == 8);
         data();
         spi_get_hw(_spi)->dr = b0;
         spi_wait();
@@ -199,7 +205,7 @@ private:
 
     inline void spi_write_data(uint16_t p0)
     {
-        xassert(spi_get_bits(_spi) == 8);
+        assert(spi_get_bits(_spi) == 8);
         data();
         spi_get_hw(_spi)->dr = (uint32_t)(p0 >> 8);
         spi_get_hw(_spi)->dr = (uint32_t)p0;
@@ -208,7 +214,7 @@ private:
 
     inline void spi_write_data(uint8_t b0, uint8_t b1, uint8_t b2, uint8_t b3)
     {
-        xassert(spi_get_bits(_spi) == 8);
+        assert(spi_get_bits(_spi) == 8);
         data();
         spi_get_hw(_spi)->dr = (uint32_t)b0;
         spi_get_hw(_spi)->dr = (uint32_t)b1;
@@ -219,7 +225,7 @@ private:
 
     // async support
 
-    static const int op_max = 4;
+    static const int op_max = 64;
 
     int _ops_stall_cnt; // times we had to wait for space in _ops[]
 

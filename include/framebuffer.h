@@ -1,8 +1,9 @@
 #pragma once
 
+#include <cassert>
+
 #include "color.h"
 #include "font.h"
-#include "xassert.h"
 
 
 class Framebuffer
@@ -19,9 +20,9 @@ public:
     {
         // Initialization of width, height, and rotation assume we
         // start out in landscape mode and _phys_wid >= _phys_hgt.
-        xassert(_rotation == Rotation::landscape ||
-                _rotation == Rotation::landscape2);
-        xassert(_phys_wid >= _phys_hgt);
+        assert(_rotation == Rotation::landscape ||
+               _rotation == Rotation::landscape2);
+        assert(_phys_wid >= _phys_hgt);
     }
 
     virtual ~Framebuffer() = default;
@@ -52,6 +53,24 @@ public:
         landscape2, // landscape, 180 degrees from landscape
     };
 
+    // Horizontal alignment. Note that right alignment does not use the
+    // specified point, whereas left alignment does. The intent is that
+    // left- and right-aligned widgets are drawn right next to each other
+    // when their specified points are the same.
+    enum class HAlign {
+        //                      V
+        Right = -1, // draw_here
+        Center = 0, //      draw_here
+        Left = +1,  //          draw_here
+    };
+
+    // Vertical alignment.
+    enum class VAlign {
+        Bottom = -1, // draw above reference point
+        Center = 0,  // center on reference point
+        Top = +1,    // draw reference point and below
+    };
+
     virtual void set_rotation(Rotation r)
     {
         // subclass should do most of the work
@@ -60,13 +79,13 @@ public:
             _rotation == Rotation::landscape2) {
             _width = _phys_wid;
             _height = _phys_hgt;
-            xassert(_width >= _height);
+            assert(_width >= _height);
         } else {
-            xassert(_rotation == Rotation::portrait ||
-                    _rotation == Rotation::portrait2);
+            assert(_rotation == Rotation::portrait ||
+                   _rotation == Rotation::portrait2);
             _width = _phys_hgt;
             _height = _phys_wid;
-            xassert(_width <= _height);
+            assert(_width <= _height);
         }
     }
 
@@ -92,7 +111,12 @@ public:
     // write array of pixels to screen
     // Subclass will interpret what 'pixels' points to (sorry).
     // It must include at least the size (wid x hgt) and pixel data.
-    virtual void write(int hor, int ver, const void *pixels) = 0;
+    virtual void write(int hor, int ver, const void *pixels, //
+                       HAlign align = HAlign::Left) = 0;
+
+    virtual void write(int hor, int ver, int num, const void **dig_img, //
+                       HAlign align = HAlign::Left,                     //
+                       int *wid = nullptr, int *hgt = nullptr) = 0;
 
     // Bit mask controlling which quadrants get drawn in circle methods:
     //   bit 0 -> quadrant 1, (+, +), lower right
@@ -113,28 +137,28 @@ public:
 
     // draw circle outline
     // (h, v) is the center point, r is the radius
-    virtual void draw_circle(int h, int v, int r, const Color c,
+    virtual void draw_circle(int hor, int ver, int rad, const Color c,
                              Quadrant quadrant = Quadrant::All);
 
     // draw antialiased circle outline using Wu's algorithm
     // (h, v) is the center point, r is the radius
     // fg is the circle color, bg is used for antialiasing blending
     // Uses integer-only arithmetic (no floating point)
-    virtual void draw_circle_aa(int h, int v, int r, const Color fg,
+    virtual void draw_circle_aa(int hor, int ver, int rad, const Color fg,
                                 const Color bg,
                                 Quadrant quadrant = Quadrant::All);
 
     // print character to screen
-    virtual void print(int h, int v, char c, const Font &font, //
-                       const Color fg, const Color bg, int align = 1) = 0;
+    virtual void print(int hor, int ver, char ch, const Font &font, //
+                       const Color fg, const Color bg,
+                       HAlign align = HAlign::Left) = 0;
 
     // print string to screen
-    // align == -1 for right-aligned (exends "minus" from current position),
-    // 0 for centered, and +1 for left-aligned. The default just iterates
-    // through char-by-char; one might want to override this if too many
-    // glyphs extend outside their "bounding box".
-    virtual void print(int h, int v, const char *s, const Font &font, //
-                       const Color fg, const Color bg, int align = 1);
+    // The default just iterates through char-by-char; one might want to
+    // override this if too many glyphs extend outside their bounding box.
+    virtual void print(int hor, int ver, const char *str, const Font &font, //
+                       const Color fg, const Color bg,
+                       HAlign align = HAlign::Left);
 
 protected:
 

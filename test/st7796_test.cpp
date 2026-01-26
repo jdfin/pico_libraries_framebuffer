@@ -1,35 +1,25 @@
 
 #include "st7796.h"
 
+#include <cassert>
 #include <cstdio>
-
-#include "argv.h"
-#include "color.h"
-#include "font.h"
+// pico
 #include "hardware/spi.h"
+#include "pico/rand.h"
 #include "pico/stdio.h"
 #include "pico/stdio_usb.h"
 #include "pico/stdlib.h"
-#include "pixel_565.h"
-#include "pixel_image.h"
-#include "roboto_16.h"
-#include "roboto_18.h"
-#include "roboto_20.h"
-#include "roboto_22.h"
-#include "roboto_24.h"
-#include "roboto_26.h"
-#include "roboto_28.h"
-#include "roboto_30.h"
-#include "roboto_32.h"
-#include "roboto_34.h"
-#include "roboto_36.h"
-#include "roboto_38.h"
-#include "roboto_40.h"
-#include "roboto_44.h"
-#include "roboto_48.h"
+// misc
+#include "argv.h"
 #include "str_ops.h"
 #include "sys_led.h"
 #include "util.h"
+// framebuffer
+#include "color.h"
+#include "font.h"
+#include "pixel_565.h"
+#include "pixel_image.h"
+#include "roboto.h"
 
 // Pico:
 //
@@ -106,6 +96,8 @@ namespace ImgButton { static void run(Framebuffer &fb); }
 namespace Label1 { static void run(Framebuffer &fb); }
 namespace Font1 { static void run(Framebuffer &fb); };
 namespace Screen { static void run(Framebuffer &fb); };
+namespace ImgUpdate { static void run(Framebuffer &fb); }
+namespace ImgDigits { static void run(Framebuffer &fb); }
 // clang-format on
 
 static struct {
@@ -140,6 +132,8 @@ static struct {
     {"Label1", Label1::run},
     {"Font1", Font1::run},
     {"Screen", Screen::run},
+    {"ImgUpdate", ImgUpdate::run},
+    {"ImgDigits", ImgDigits::run},
 };
 static const int num_tests = sizeof(tests) / sizeof(tests[0]);
 
@@ -381,7 +375,7 @@ static void colors_1(Framebuffer &fb)
 static void colors_3(Framebuffer &fb)
 {
     // Landscape mode: 480 wide x 320 high
-    xassert(fb.width() == 480 && fb.height() == 320);
+    assert(fb.width() == 480 && fb.height() == 320);
 
     // hue will go 0...359 across the width; center it
     int col_0 = (fb.width() - 360) / 2;
@@ -529,10 +523,10 @@ static void fill_rect_2(Framebuffer &fb)
     printf("yellow(0) magenta(0) cyan(0) white()\n");
 
     const int ver_sz = fb.height() / color_cnt;
-    xassert((ver_sz * color_cnt) == fb.height());
+    assert((ver_sz * color_cnt) == fb.height());
 
     const int hor_sz = fb.width() / color_cnt;
-    xassert((hor_sz * color_cnt) == fb.width());
+    assert((hor_sz * color_cnt) == fb.width());
 
     int color = 0;
 
@@ -678,7 +672,7 @@ static void print_string_2(Framebuffer &fb)
     fb.line(hor, 0, hor, fb.height() - 1, Color::red());
 
     fb.print(hor, ver, "Hello, world!", font, Color::black(), Color::white(),
-             0);
+             Framebuffer::HAlign::Center);
 }
 
 
@@ -714,32 +708,32 @@ static void print_string_3(Framebuffer &fb)
     // print with one pixel to spare on the left
     ver = 20;
     hor = w + 1;
-    fb.print(hor, ver, s, font, fg, bg, -1);
+    fb.print(hor, ver, s, font, fg, bg, Framebuffer::HAlign::Right);
 
     // print right up against the left edge
     ver += font.y_adv + 1;
     hor = w;
-    fb.print(hor, ver, s, font, fg, bg, -1);
+    fb.print(hor, ver, s, font, fg, bg, Framebuffer::HAlign::Right);
 
     // crop the first character
     ver += font.y_adv + 1;
     hor = w - 1;
-    fb.print(hor, ver, s, font, fg, bg, -1);
+    fb.print(hor, ver, s, font, fg, bg, Framebuffer::HAlign::Right);
 
     // print with one pixel to spare below
     ver = fb.height() - font.y_adv - 1;
     hor = fb.width() / 4;
-    fb.print(hor, ver, s, font, fg, bg, 0);
+    fb.print(hor, ver, s, font, fg, bg, Framebuffer::HAlign::Center);
 
     // print right up against the bottom
     ver = fb.height() - font.y_adv;
     hor = 2 * fb.width() / 4;
-    fb.print(hor, ver, s, font, fg, bg, 0);
+    fb.print(hor, ver, s, font, fg, bg, Framebuffer::HAlign::Center);
 
     // doesn't print since it would extend off the bottom
     ver = fb.height() - font.y_adv + 1;
     hor = 3 * fb.width() / 4;
-    fb.print(hor, ver, s, font, fg, bg, 0);
+    fb.print(hor, ver, s, font, fg, bg, Framebuffer::HAlign::Center);
 }
 
 
@@ -755,6 +749,8 @@ static void print_string_4(Framebuffer &fb)
     const Color bg = Color::white();
 
     fb.fill_rect(0, 0, fb.width(), fb.height(), bg);
+
+    printf("(press any key to stop)\n");
 
     int v = 0;
     const int v_inc = font.height() / 4;
@@ -784,6 +780,8 @@ static void print_string_4(Framebuffer &fb)
         if (0 <= c && c <= 255)
             break;
     }
+
+    printf("\n");
 }
 
 
@@ -870,147 +868,51 @@ static constexpr Color fg = Color::black();
 static constexpr Color bg = Color::white();
 static constexpr int btn_hgt = font.y_adv;
 
-static constexpr char str_0[] = "0";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_0 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_0, font, fg, 1, fg, bg);
+// Using the preprocessor to create the buttons reduces ~150 LOC like this:
+//
+// static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_0 =
+//     label_img<Pixel565, btn_sz, btn_sz>("0", font, fg, bg, 1, fg);
+// static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_0_inv =
+//     label_img<Pixel565, btn_sz, btn_sz>("0", font, bg, fg, 1, fg);
+//
+// static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_1 =
+//     label_img<Pixel565, btn_sz, btn_sz>("1", font, fg, bg, 1, fg);
+// static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_1_inv =
+//     label_img<Pixel565, btn_sz, btn_sz>("1", font, bg, fg, 1, fg);
+//
+// ... etc.
+//
+// to ~30 LOC like this:
 
-static constexpr char str_1[] = "1";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_1 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_1, font, fg, 1, fg, bg);
+#define IMG_MAKE(NUM)                                                       \
+    static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_##NUM##_nor = \
+        label_img<Pixel565, btn_sz, btn_sz>(#NUM, font, fg, bg, 1, fg);     \
+    static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_##NUM##_inv = \
+        label_img<Pixel565, btn_sz, btn_sz>(#NUM, font, bg, fg, 1, fg);
 
-static constexpr char str_2[] = "2";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_2 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_2, font, fg, 1, fg, bg);
+// clang-format off
+#define IMG_LIST IMG_MAKE(0)  IMG_MAKE(1)  IMG_MAKE(2)  IMG_MAKE(3)  IMG_MAKE(4)  \
+                 IMG_MAKE(5)  IMG_MAKE(6)  IMG_MAKE(7)  IMG_MAKE(8)  IMG_MAKE(9)  \
+                 IMG_MAKE(10) IMG_MAKE(11) IMG_MAKE(12) IMG_MAKE(13) IMG_MAKE(14) \
+                 IMG_MAKE(15) IMG_MAKE(16) IMG_MAKE(17) IMG_MAKE(18) IMG_MAKE(19) \
+                 IMG_MAKE(20) IMG_MAKE(21) IMG_MAKE(22) IMG_MAKE(23) IMG_MAKE(24) \
+                 IMG_MAKE(25) IMG_MAKE(26) IMG_MAKE(27) IMG_MAKE(28) IMG_MAKE(29)
+// clang-format on
 
-static constexpr char str_3[] = "3";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_3 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_3, font, fg, 1, fg, bg);
+// create the images themselves, two per button
+IMG_LIST
 
-static constexpr char str_4[] = "4";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_4 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_4, font, fg, 1, fg, bg);
+#undef IMG_MAKE
 
-static constexpr char str_5[] = "5";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_5 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_5, font, fg, 1, fg, bg);
+// create the array of button pointers
+// even indices are normal, odd indices are inverted
+#define IMG_MAKE(NUM) \
+    (PixelImageInfo *)&btn_##NUM##_nor, (PixelImageInfo *)&btn_##NUM##_inv,
 
-static constexpr char str_6[] = "6";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_6 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_6, font, fg, 1, fg, bg);
+static const PixelImageInfo *btn_img[60] = {IMG_LIST};
 
-static constexpr char str_7[] = "7";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_7 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_7, font, fg, 1, fg, bg);
-
-static constexpr char str_8[] = "8";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_8 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_8, font, fg, 1, fg, bg);
-
-static constexpr char str_9[] = "9";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_9 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_9, font, fg, 1, fg, bg);
-
-static constexpr char str_10[] = "10";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_10 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_10, font, fg, 1, fg, bg);
-
-static constexpr char str_11[] = "11";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_11 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_11, font, fg, 1, fg, bg);
-
-static constexpr char str_12[] = "12";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_12 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_12, font, fg, 1, fg, bg);
-
-static constexpr char str_13[] = "13";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_13 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_13, font, fg, 1, fg, bg);
-
-static constexpr char str_14[] = "14";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_14 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_14, font, fg, 1, fg, bg);
-
-static constexpr char str_15[] = "15";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_15 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_15, font, fg, 1, fg, bg);
-
-static constexpr char str_16[] = "16";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_16 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_16, font, fg, 1, fg, bg);
-
-static constexpr char str_17[] = "17";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_17 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_17, font, fg, 1, fg, bg);
-
-static constexpr char str_18[] = "18";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_18 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_18, font, fg, 1, fg, bg);
-
-static constexpr char str_19[] = "19";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_19 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_19, font, fg, 1, fg, bg);
-
-static constexpr char str_20[] = "20";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_20 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_20, font, fg, 1, fg, bg);
-
-static constexpr char str_21[] = "21";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_21 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_21, font, fg, 1, fg, bg);
-
-static constexpr char str_22[] = "22";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_22 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_22, font, fg, 1, fg, bg);
-
-static constexpr char str_23[] = "23";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_23 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_23, font, fg, 1, fg, bg);
-
-static constexpr char str_24[] = "24";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_24 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_24, font, fg, 1, fg, bg);
-
-static constexpr char str_25[] = "25";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_25 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_25, font, fg, 1, fg, bg);
-
-static constexpr char str_26[] = "26";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_26 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_26, font, fg, 1, fg, bg);
-
-static constexpr char str_27[] = "27";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_27 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_27, font, fg, 1, fg, bg);
-
-static constexpr char str_28[] = "28";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_28 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_28, font, fg, 1, fg, bg);
-
-static constexpr char str_29[] = "29";
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_29 =
-    label_img<Pixel565, btn_sz, btn_sz>(str_29, font, fg, 1, fg, bg);
-
-// and one with "pressed" colors
-static constexpr PixelImage<Pixel565, btn_sz, btn_sz> btn_13_inv =
-    label_img<Pixel565, btn_sz, btn_sz>(str_13, font, bg, 1, fg, fg);
-
-const PixelImageInfo *btn_img[30] = {
-    (PixelImageInfo *)&btn_0,  (PixelImageInfo *)&btn_1,
-    (PixelImageInfo *)&btn_2,  (PixelImageInfo *)&btn_3,
-    (PixelImageInfo *)&btn_4,  (PixelImageInfo *)&btn_5,
-    (PixelImageInfo *)&btn_6,  (PixelImageInfo *)&btn_7,
-    (PixelImageInfo *)&btn_8,  (PixelImageInfo *)&btn_9,
-    (PixelImageInfo *)&btn_10, (PixelImageInfo *)&btn_11,
-    (PixelImageInfo *)&btn_12, (PixelImageInfo *)&btn_13,
-    (PixelImageInfo *)&btn_14, (PixelImageInfo *)&btn_15,
-    (PixelImageInfo *)&btn_16, (PixelImageInfo *)&btn_17,
-    (PixelImageInfo *)&btn_18, (PixelImageInfo *)&btn_19,
-    (PixelImageInfo *)&btn_20, (PixelImageInfo *)&btn_21,
-    (PixelImageInfo *)&btn_22, (PixelImageInfo *)&btn_23,
-    (PixelImageInfo *)&btn_24, (PixelImageInfo *)&btn_25,
-    (PixelImageInfo *)&btn_26, (PixelImageInfo *)&btn_27,
-    (PixelImageInfo *)&btn_28, (PixelImageInfo *)&btn_29,
-};
+#undef IMG_MAKE
+#undef IMG_LIST
 
 static void run(Framebuffer &fb)
 {
@@ -1024,27 +926,36 @@ static void run(Framebuffer &fb)
     for (int r = 0; r < 3; r++) {
         hor = 0;
         for (int c = 0; c < per_row; c++) {
-            int idx = r * per_row + c;
-            assert(0 <= idx && idx < 30);
-            assert(is_xip(btn_img[idx]->pixels));
-            fb.write(hor, ver, btn_img[idx]);
+            int btn_num = r * per_row + c;
+            assert(0 <= btn_num && btn_num < 30);
+            assert(is_xip(btn_img[btn_num * 2]->pixels));
+            fb.write(hor, ver, btn_img[btn_num * 2]);
             hor += btn_sz;
         }
         ver += btn_sz;
     }
     fb.line(0, btn_sz * 3, fb.width() - 1, btn_sz * 3, fg);
 
-    // flip button 13 a few times
-    int btn_num = 13;
-    hor = btn_sz * (btn_num % 10);
-    ver = btn_sz * (btn_num / 10);
-    for (int i = 0; i < 10; i++) {
+    printf("(press any key to stop)\n");
+
+    // flip random button until a key is pressed
+    for (int i = 0;; i++) {
+        int btn_num = get_rand_32() % 30; // 0..29
+        assert(0 <= btn_num && btn_num < 30);
+        hor = btn_sz * (btn_num % 10);
+        ver = btn_sz * (btn_num / 10);
         if ((i & 1) == 0)
-            fb.write(hor, ver, &btn_13_inv); // inverted
+            fb.write(hor, ver, btn_img[btn_num * 2 + 1]); // inverted
         else
-            fb.write(hor, ver, &btn_13); // not inverted
-        sleep_ms(1000);
+            fb.write(hor, ver, btn_img[btn_num * 2]); // normal
+        sleep_ms(100);
+
+        int c = stdio_getchar_timeout_us(0);
+        if (0 <= c && c <= 255)
+            break;
     }
+
+    printf("\n");
 }
 
 } // namespace ImgButton
@@ -1152,166 +1063,62 @@ static void run(Framebuffer &fb)
 
 namespace Font1 {
 
+// Create labels for several font sizes and display them.
+//
+// Change the font used in the first LBL_MAKE() macro.
+// Change the sizes used in the LBL_LIST macro.
+
 static constexpr Color fg = Color::black();
 static constexpr Color bg = Color::white();
 
-static constexpr char msg_16[] = " Roboto 16 ";
-static constexpr int wid_16 = roboto_16.width(msg_16);
-static constexpr int hgt_16 = roboto_16.y_adv;
-static constexpr PixelImage<Pixel565, wid_16, hgt_16> img_16 =
-    label_img<Pixel565, wid_16, hgt_16>(msg_16, roboto_16, fg, 0, fg, bg);
+#define LBL_MAKE(Z)                                                   \
+    static constexpr char msg_##Z[] = " Roboto " #Z " ";              \
+    static constexpr int wid_##Z = roboto_##Z.width(msg_##Z);         \
+    static constexpr int hgt_##Z = roboto_##Z.y_adv;                  \
+    static constexpr PixelImage<Pixel565, wid_##Z, hgt_##Z> img_##Z = \
+        label_img<Pixel565, wid_##Z, hgt_##Z>(msg_##Z, roboto_##Z, fg, bg);
 
-static constexpr char msg_18[] = " Roboto 18 ";
-static constexpr int wid_18 = roboto_18.width(msg_18);
-static constexpr int hgt_18 = roboto_18.y_adv;
-static constexpr PixelImage<Pixel565, wid_18, hgt_18> img_18 =
-    label_img<Pixel565, wid_18, hgt_18>(msg_18, roboto_18, fg, 0, fg, bg);
+// clang-format off
+#define LBL_LIST \
+    LBL_MAKE(16) LBL_MAKE(18) LBL_MAKE(20) LBL_MAKE(22) LBL_MAKE(24) \
+    LBL_MAKE(26) LBL_MAKE(28) LBL_MAKE(30) LBL_MAKE(32) LBL_MAKE(34) \
+    LBL_MAKE(36) LBL_MAKE(38) LBL_MAKE(40) LBL_MAKE(44) LBL_MAKE(48)
+// clang-format on
 
-static constexpr char msg_20[] = " Roboto 20 ";
-static constexpr int wid_20 = roboto_20.width(msg_20);
-static constexpr int hgt_20 = roboto_20.y_adv;
-static constexpr PixelImage<Pixel565, wid_20, hgt_20> img_20 =
-    label_img<Pixel565, wid_20, hgt_20>(msg_20, roboto_20, fg, 0, fg, bg);
+// create the labels
+LBL_LIST
 
-static constexpr char msg_22[] = " Roboto 22 ";
-static constexpr int wid_22 = roboto_22.width(msg_22);
-static constexpr int hgt_22 = roboto_22.y_adv;
-static constexpr PixelImage<Pixel565, wid_22, hgt_22> img_22 =
-    label_img<Pixel565, wid_22, hgt_22>(msg_22, roboto_22, fg, 0, fg, bg);
+#undef LBL_MAKE
 
-static constexpr char msg_24[] = " Roboto 24 ";
-static constexpr int wid_24 = roboto_24.width(msg_24);
-static constexpr int hgt_24 = roboto_24.y_adv;
-static constexpr PixelImage<Pixel565, wid_24, hgt_24> img_24 =
-    label_img<Pixel565, wid_24, hgt_24>(msg_24, roboto_24, fg, 0, fg, bg);
+#define LBL_MAKE(Z) (PixelImageInfo *)&img_##Z,
 
-static constexpr char msg_26[] = " Roboto 26 ";
-static constexpr int wid_26 = roboto_26.width(msg_26);
-static constexpr int hgt_26 = roboto_26.y_adv;
-static constexpr PixelImage<Pixel565, wid_26, hgt_26> img_26 =
-    label_img<Pixel565, wid_26, hgt_26>(msg_26, roboto_26, fg, 0, fg, bg);
+static const PixelImageInfo *lbl_img[] = {LBL_LIST};
+static const int lbl_max = sizeof(lbl_img) / sizeof(lbl_img[0]);
 
-static constexpr char msg_28[] = " Roboto 28 ";
-static constexpr int wid_28 = roboto_28.width(msg_28);
-static constexpr int hgt_28 = roboto_28.y_adv;
-static constexpr PixelImage<Pixel565, wid_28, hgt_28> img_28 =
-    label_img<Pixel565, wid_28, hgt_28>(msg_28, roboto_28, fg, 0, fg, bg);
-
-static constexpr char msg_30[] = " Roboto 30 ";
-static constexpr int wid_30 = roboto_30.width(msg_30);
-static constexpr int hgt_30 = roboto_30.y_adv;
-static constexpr PixelImage<Pixel565, wid_30, hgt_30> img_30 =
-    label_img<Pixel565, wid_30, hgt_30>(msg_30, roboto_30, fg, 0, fg, bg);
-
-static constexpr char msg_32[] = " Roboto 32 ";
-static constexpr int wid_32 = roboto_32.width(msg_32);
-static constexpr int hgt_32 = roboto_32.y_adv;
-static constexpr PixelImage<Pixel565, wid_32, hgt_32> img_32 =
-    label_img<Pixel565, wid_32, hgt_32>(msg_32, roboto_32, fg, 0, fg, bg);
-
-static constexpr char msg_34[] = " Roboto 34 ";
-static constexpr int wid_34 = roboto_34.width(msg_34);
-static constexpr int hgt_34 = roboto_34.y_adv;
-static constexpr PixelImage<Pixel565, wid_34, hgt_34> img_34 =
-    label_img<Pixel565, wid_34, hgt_34>(msg_34, roboto_34, fg, 0, fg, bg);
-
-static constexpr char msg_36[] = " Roboto 36 ";
-static constexpr int wid_36 = roboto_36.width(msg_36);
-static constexpr int hgt_36 = roboto_36.y_adv;
-static constexpr PixelImage<Pixel565, wid_36, hgt_36> img_36 =
-    label_img<Pixel565, wid_36, hgt_36>(msg_36, roboto_36, fg, 0, fg, bg);
-
-static constexpr char msg_38[] = " Roboto 38 ";
-static constexpr int wid_38 = roboto_38.width(msg_38);
-static constexpr int hgt_38 = roboto_38.y_adv;
-static constexpr PixelImage<Pixel565, wid_38, hgt_38> img_38 =
-    label_img<Pixel565, wid_38, hgt_38>(msg_38, roboto_38, fg, 0, fg, bg);
-
-static constexpr char msg_40[] = " Roboto 40 ";
-static constexpr int wid_40 = roboto_40.width(msg_40);
-static constexpr int hgt_40 = roboto_40.y_adv;
-static constexpr PixelImage<Pixel565, wid_40, hgt_40> img_40 =
-    label_img<Pixel565, wid_40, hgt_40>(msg_40, roboto_40, fg, 0, fg, bg);
-
-static constexpr char msg_44[] = " Roboto 44 ";
-static constexpr int wid_44 = roboto_44.width(msg_44);
-static constexpr int hgt_44 = roboto_44.y_adv;
-static constexpr PixelImage<Pixel565, wid_44, hgt_44> img_44 =
-    label_img<Pixel565, wid_44, hgt_44>(msg_44, roboto_44, fg, 0, fg, bg);
-
-static constexpr char msg_48[] = " Roboto 48 ";
-static constexpr int wid_48 = roboto_48.width(msg_48);
-static constexpr int hgt_48 = roboto_48.y_adv;
-static constexpr PixelImage<Pixel565, wid_48, hgt_48> img_48 =
-    label_img<Pixel565, wid_48, hgt_48>(msg_48, roboto_48, fg, 0, fg, bg);
+#undef LBL_MAKE
+#undef LBL_LIST
 
 static void run(Framebuffer &fb)
 {
-    int hor = 10;
-    int ver = 10;
+    const int marg = 10;
+    int hor = marg;
+    int ver = marg;
+    const int sep = 5; // pixels between labels
 
-    const int sep = 5;
-
-    xassert(is_xip(&img_16));
-    fb.write(hor, ver, &img_16);
-    ver = ver + img_16.height + sep;
-
-    xassert(is_xip(&img_18));
-    fb.write(hor, ver, &img_18);
-    ver = ver + img_18.height + sep;
-
-    xassert(is_xip(&img_20));
-    fb.write(hor, ver, &img_20);
-    ver = ver + img_20.height + sep;
-
-    xassert(is_xip(&img_22));
-    fb.write(hor, ver, &img_22);
-    ver = ver + img_22.height + sep;
-
-    xassert(is_xip(&img_24));
-    fb.write(hor, ver, &img_24);
-    ver = ver + img_24.height + sep;
-
-    xassert(is_xip(&img_26));
-    fb.write(hor, ver, &img_26);
-    ver = ver + img_26.height + sep;
-
-    xassert(is_xip(&img_28));
-    fb.write(hor, ver, &img_28);
-    ver = ver + img_28.height + sep;
-
-    xassert(is_xip(&img_30));
-    fb.write(hor, ver, &img_30);
-    ver = ver + img_30.height + sep;
-
-    xassert(is_xip(&img_32));
-    fb.write(hor, ver, &img_32);
-    hor = 200;
-    ver = 10;
-
-    xassert(is_xip(&img_34));
-    fb.write(hor, ver, &img_34);
-    ver = ver + img_34.height + sep;
-
-    xassert(is_xip(&img_36));
-    fb.write(hor, ver, &img_36);
-    ver = ver + img_36.height + sep;
-
-    xassert(is_xip(&img_38));
-    fb.write(hor, ver, &img_38);
-    ver = ver + img_38.height + sep;
-
-    xassert(is_xip(&img_40));
-    fb.write(hor, ver, &img_40);
-    ver = ver + img_40.height + sep;
-
-    xassert(is_xip(&img_44));
-    fb.write(hor, ver, &img_44);
-    ver = ver + img_44.height + sep;
-
-    xassert(is_xip(&img_48));
-    fb.write(hor, ver, &img_48);
-    ver = ver + img_48.height + sep;
+    Framebuffer::HAlign align = Framebuffer::HAlign::Left;
+    for (int i = 0; i < lbl_max; i++) {
+        const PixelImageInfo *img = lbl_img[i];
+        assert(is_xip(img));
+        if (ver + img->hgt > fb.height()) {
+            if (align != Framebuffer::HAlign::Left)
+                break; // no more room
+            hor = fb.width() - marg;
+            ver = marg;
+            align = Framebuffer::HAlign::Right;
+        }
+        fb.write(hor, ver, img, align);
+        ver = ver + img->hgt + sep;
+    }
 }
 
 } // namespace Font1
@@ -1401,7 +1208,8 @@ static void draw(Framebuffer &fb, int num)
 {
     char num_str[16];
     snprintf(num_str, sizeof(num_str), "%d", num);
-    fb.print(fb.width() / 2, ver, num_str, font, fg, bg, 0);
+    fb.print(fb.width() / 2, ver, num_str, font, fg, bg,
+             Framebuffer::HAlign::Center);
 }
 
 } // namespace Id
@@ -1522,3 +1330,139 @@ static void run(Framebuffer &fb)
 }
 
 } // namespace Screen
+
+
+namespace ImgUpdate {
+
+// This shows:
+//
+// Filling the background takes ~2.3 msec for 100w x 50h image
+// --> Fill at ~2.1 Mpix/sec
+//
+// Rendering a zero in 32pt roboto (13w x 19h) takes ~460 usec
+// --> Render at ~0.54 Mpix/sec
+//
+// Rendering a four-digit number in a 100w x 50h image takes ~4.2 msec
+// --> Rendering to ram, and writing over spi, take roughly the same time
+//
+// If we didn't fill the entire background, but just the area around the
+// text, four zeros should take ~3.7 msec.
+//
+// We might want to pre-render each digit and draw numbers by dma-ing each
+// digit from flash.
+
+static constexpr Font font = roboto_32;
+static constexpr int wid = 100;
+static constexpr int hgt = 50;
+static constexpr Color fg = Color::lime();
+static constexpr Color bg = Color::gray(80);
+
+static PixelImage<Pixel565, wid, hgt> img;
+
+static void run(Framebuffer &fb)
+{
+    PixelImageInfo *hdr = (PixelImageInfo *)&img;
+
+    const char *msgs[] = {"", "0", "00", "000", "0000", "00000"};
+
+    for (int i = 0; i < 6; i++) {
+
+        uint32_t t0 = time_us_32();
+
+        label_img<Pixel565>(hdr, msgs[i], font, fg, 0, fg, bg);
+
+        uint32_t t1 = time_us_32();
+
+        printf("ImgUpdate: created %dw x %dh image for \"%s\" in %lu usec\n",
+               img.width, img.height, msgs[i], t1 - t0);
+
+        printf(
+            "ImgUpdate: writing %dw x %dh image for \"%s\" at 0x%p (%d "
+            "bytes)\n",
+            img.width, img.height, msgs[i], &img, sizeof(img.pixels));
+
+        int hor = 100;
+        int ver = 100;
+
+        fb.write(hor, ver, &img);
+
+        sleep_ms(1000);
+    }
+}
+
+} // namespace ImgUpdate
+
+
+namespace ImgDigits {
+
+// Pre-render digits 0-9 and use that to render integers.
+//
+// In roboto_30, overhead is about 35 usec, and each digit adds a few usec.
+// "1234" takes 40 usec, and "123456789" takes 60 usec. This is just to
+// start the dma, then it continues to run after this returns.
+
+static constexpr Font font = roboto_30;
+static constexpr int hgt = font.y_adv;
+static constexpr Color fg = Color::red();
+static constexpr Color bg = Color::white();
+
+// Use preprocessor to create an image for each digit 0-9. Something using
+// templates or constexpr functions would be better, but this works and is
+// straightforward enough.
+
+#define IMG_MAKE(N, F, FG, BG)                                            \
+    static constexpr PixelImage<Pixel565, F.width(#N), F.y_adv> img_##N = \
+        label_img<Pixel565, F.width(#N), F.y_adv>(#N, F, FG, BG);
+
+// clang-format off
+#define IMG_LIST(F, FG, BG) IMG_MAKE(0, F, FG, BG) IMG_MAKE(1, F, FG, BG) \
+                            IMG_MAKE(2, F, FG, BG) IMG_MAKE(3, F, FG, BG) \
+                            IMG_MAKE(4, F, FG, BG) IMG_MAKE(5, F, FG, BG) \
+                            IMG_MAKE(6, F, FG, BG) IMG_MAKE(7, F, FG, BG) \
+                            IMG_MAKE(8, F, FG, BG) IMG_MAKE(9, F, FG, BG)
+// clang-format on
+
+// Expand to create all ten images
+IMG_LIST(font, fg, bg)
+
+// Clean up macros
+#undef IMG_MAKE
+#undef IMG_LIST
+
+static const PixelImageInfo *digit_img[10] = {
+    (PixelImageInfo *)&img_0, (PixelImageInfo *)&img_1,
+    (PixelImageInfo *)&img_2, (PixelImageInfo *)&img_3,
+    (PixelImageInfo *)&img_4, (PixelImageInfo *)&img_5,
+    (PixelImageInfo *)&img_6, (PixelImageInfo *)&img_7,
+    (PixelImageInfo *)&img_8, (PixelImageInfo *)&img_9,
+};
+
+// cast to pass to Framebuffer::write()
+static const void **dig_img = reinterpret_cast<const void **>(digit_img);
+
+
+static void run(Framebuffer &fb)
+{
+    const int nums[] = {0,     1,      12,      123,      1234,
+                        12345, 123456, 1234567, 12345678, 123456789};
+    const int nums_max = sizeof(nums) / sizeof(nums[0]);
+    const int hor = 100;
+    const int ver = 100;
+    const int hgt = digit_img[0]->hgt;
+
+    // all digits should be in flash
+    for (int i = 0; i < 10; i++)
+        assert(is_xip(digit_img[i]));
+
+    for (int i = 0; i < nums_max; i++) {
+        uint32_t t0 = time_us_32();
+        fb.write(hor, ver, nums[i], dig_img, Framebuffer::HAlign::Center);
+        uint32_t t1 = time_us_32();
+        // 'line' includes the start and end points
+        fb.line(hor, ver - hgt, hor, ver + hgt + hgt - 1, Color::lime());
+        printf("ImgDigits: wrote image for %d in %lu usec\n", nums[i], t1 - t0);
+        sleep_ms(1000);
+    }
+}
+
+} // namespace ImgDigits

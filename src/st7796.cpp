@@ -1,4 +1,5 @@
 
+#include <cassert>
 #include <climits>
 #include <cstdint>
 #include <cstdio>
@@ -46,9 +47,9 @@ St7796::St7796(spi_inst_t *spi, int miso_pin, int mosi_pin, int clk_pin,
     _op_next(0),
     _op_free(0)
 {
-    xassert(spi != nullptr);
-    xassert(_miso_pin >= 0 && _mosi_pin >= 0 && _clk_pin >= 0);
-    xassert(_cd_pin >= 0 && _rst_pin >= 0);
+    assert(spi != nullptr);
+    assert(_miso_pin >= 0 && _mosi_pin >= 0 && _clk_pin >= 0);
+    assert(_cd_pin >= 0 && _rst_pin >= 0);
 
     DbgGpio::init(28);
 
@@ -116,7 +117,7 @@ void St7796::init()
     // high byte == "delay", low byte is milliseconds to sleep
 
     // so we don't have to OR-in wr_data in every data byte below
-    xassert(wr_data == 0x0000);
+    assert(wr_data == 0x0000);
 
     // clang-format off
     const uint16_t cmds[] = {
@@ -174,7 +175,7 @@ void St7796::init()
 
 void St7796::write_cmds(const uint16_t *b, int b_len)
 {
-    xassert(b != nullptr && b_len >= 1);
+    assert(b != nullptr && b_len >= 1);
     spi_set_format(_spi, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
     while (b_len > 0) {
         uint16_t next = *b++;
@@ -210,7 +211,7 @@ void St7796::hw_reset()
 // For now, zero turns it off, nonzero turns it on.
 void St7796::brightness(int brightness_pct)
 {
-    xassert(0 <= brightness_pct && brightness_pct <= 100);
+    assert(0 <= brightness_pct && brightness_pct <= 100);
     _brightness_pct = brightness_pct;
     if (_bk_pin >= 0)
         gpio_put(_bk_pin, brightness_pct > 0);
@@ -245,7 +246,7 @@ uint8_t St7796::madctl() const
     } else if (get_rotation() == Rotation::portrait2) {
         return 0x88;
     } else {
-        xassert(get_rotation() == Rotation::landscape2);
+        assert(get_rotation() == Rotation::landscape2);
         return 0x28;
     }
 }
@@ -363,7 +364,7 @@ void St7796::dma_handler()
             dma_channel_configure(_dma_ch, &_dma_cfg, &spi_get_hw(_spi)->dr,
                                   pixels, wid * hgt, true); // go!
         } else {
-            xassert(false); // only Fill and Copy
+            assert(false); // only Fill and Copy
         }
         op_next_inc();
     }
@@ -424,13 +425,25 @@ void St7796::fill_rect(int hor, int ver, int wid, int hgt, const Color c)
 
 // write array of pixels to screen
 // ('hor', 'ver') is the top left pixel
-// 'pixels' points to a PixelImage, which contains width, height, and the
+// 'image' points to a PixelImage, which contains width, height, and the
 // pixel data. It cannot be reused or reallocated until the write is finished,
 // which will be some time after this function returns.
-void St7796::write(int hor, int ver, const void *image)
+// 'align' controls horizontal alignment: left (default), center, or right.
+void St7796::write(int hor, int ver, const void *image, HAlign align)
 {
     // We don't know the height and width until we look inside 'image'.
     PixelImageInfo *pi = (PixelImageInfo *)image;
+
+    // Does the image look sane? (check since we're passing void*)
+    assert(pi != nullptr);
+    assert(pi->wid >= 0 && pi->wid <= width()); // I suppose zero is okay?
+    assert(pi->hgt >= 0 && pi->hgt <= height());
+
+    // adjust for alignment
+    if (align == HAlign::Center)
+        hor -= pi->wid / 2;
+    else if (align == HAlign::Right)
+        hor -= pi->wid;
 
     // can't start off the left edge or above the top
     if (hor < 0 || ver < 0)
@@ -446,7 +459,7 @@ void St7796::write(int hor, int ver, const void *image)
         return;
 
     if (ops_full()) {
-        // wait for space
+        // Wait for space. We want waiting here to be rare. Very rare.
         _ops_stall_cnt++;
         while (ops_full())
             tight_loop_contents();
@@ -454,7 +467,7 @@ void St7796::write(int hor, int ver, const void *image)
 
     const void *pixels = (Pixel565 *)(pi->pixels);
 
-    // if pixels is in XIP memory, use non-cached access
+    // if pixels is in XIP memory (flash), use non-cached access
     if (is_xip(pixels))
         pixels = xip_nocache(pixels);
 
@@ -483,13 +496,75 @@ void St7796::write(int hor, int ver, const void *image)
 } // St7796::write
 
 
+// Write a number to the screen as a series of digit images.
+//
+// The digit images are pre-created, normally at compile time and stored in
+// flash.
+//
+// Writing a number to the screen this way is asynchronous. The call returns
+// in a few tens of usec whereas rendering the digits (as in print) can take
+// several milliseconds.
+//
+// Negative numbers TBD, but could work through this same function. Where's
+// the minus image?
+//
+// hor, ver top left/center/right pixel of the number (see 'align')
+// num      number to write
+// dig_img  array of 10 pointers to PixelImageInfo for each digit 0..9, i.e.
+//          const PixelImageInfo *dig_img[10];
+// align    Left (default), Center, Right
+// wid, hgt receive the width and height of the rendered number in pixels
+//
+void St7796::write(int hor, int ver, int num, const void **dig_img, //
+                   HAlign align, int *wid, int *hgt)
+{
+    assert(num >= 0);
+
+    const PixelImageInfo **imgs =
+        reinterpret_cast<const PixelImageInfo **>(dig_img);
+
+    // extract digits in reverse order
+    constexpr int max_digits = 11; // "-2147483648"
+    const PixelImageInfo *num_digits[max_digits];
+    int ndigits = 0;
+    int total_wid = 0;
+    do {
+        int d = num % 10;
+        num = num / 10;
+        assert(d >= 0 && d <= 9);
+        assert(ndigits < max_digits);
+        num_digits[ndigits++] = imgs[d];
+        total_wid += imgs[d]->wid;
+    } while (num > 0);
+
+    // adjust for alignment
+    if (align == HAlign::Center)
+        hor -= total_wid / 2;
+    else if (align == HAlign::Right)
+        hor -= total_wid;
+    // else align == HAlign::Left, no adjustment
+
+    // write digits in correct order
+    for (int i = ndigits - 1; i >= 0; i--) {
+        write(hor, ver, num_digits[i]);
+        hor += num_digits[i]->wid;
+    }
+
+    if (wid != nullptr)
+        *wid = total_wid;
+
+    if (hgt != nullptr)
+        *hgt = imgs[0]->hgt;
+}
+
+
 // Print one character to screen
 //
 // 'hor', 'ver' top left pixel of the character cell
 // 'c'          character to print
 // 'font'       font to use
 // 'fg', 'bg'   the foreground (glyph) and background (margin) colors
-// 'align'      +1 for left (default), 0 for center, -1 for right
+// 'align'      left (default), center, or right
 //
 // The combination of 'c' and 'font' determine how big the character cell is.
 //
@@ -500,18 +575,18 @@ void St7796::write(int hor, int ver, const void *image)
 // hold the entire character, we'd have to wait for the dma to finish before
 // reusing _pix_buf for the next character.
 void St7796::print(int hor, int ver, char c, const Font &font, //
-                   const Color fg, const Color bg, int align)
+                   const Color fg, const Color bg, HAlign align)
 {
     if (!font.printable(c))
         return;
 
     int ci = int(c);
 
-    // align: +1 for left (default), 0 for center, -1 for right
-    if (align <= 0) {
+    // handle alignment
+    if (align != HAlign::Left) {
         // Right-aligned or centered, back up horizontal location.
         int adjust = font.info[ci].x_adv; // char width in pixels
-        if (align == 0)
+        if (align == HAlign::Center)
             adjust = adjust / 2; // centered
         hor -= adjust;
     }
@@ -586,9 +661,9 @@ void St7796::print(int hor, int ver, char c, const Font &font, //
                 col >= x_off && col < (x_off + wid)) {
                 // Yes.
                 int g_row = row - y_off;
-                xassert(g_row >= 0 && g_row < hgt);
+                assert(g_row >= 0 && g_row < hgt);
                 int g_col = col - x_off;
-                xassert(g_col >= 0 && g_col < wid);
+                assert(g_col >= 0 && g_col < wid);
                 uint8_t gray = gs[g_row * wid + g_col];
                 _pix_buf[p++] = Color::interpolate(gray, bg, fg);
             } else {

@@ -1,9 +1,9 @@
 #include "framebuffer.h"
 
+#include <cassert>
 #include <cstdio>
 
 #include "color.h"
-#include "xassert.h"
 
 
 void Framebuffer::line(int h1, int v1, int h2, int v2, const Color c)
@@ -97,7 +97,8 @@ void Framebuffer::fill_rect(int h, int v, int wid, int hgt, const Color c)
         return;
 
     for (int j = 0; j < hgt; j++)
-        for (int i = 0; i < wid; i++) pixel(h + i, v + j, c);
+        for (int i = 0; i < wid; i++)
+            pixel(h + i, v + j, c);
 }
 
 
@@ -199,7 +200,7 @@ void Framebuffer::draw_circle_aa(int h, int v, int r, const Color fg,
             // XXX when can this happen?
             alpha_outer = 128;
         } else {
-            xassert(range > 0);
+            assert(range > 0);
             // Proportion: where does ideal r² fall between inner and outer?
             alpha_outer = ((r_sq - dist_sq_1) * 255) / range;
             if (alpha_outer < 0) {
@@ -261,13 +262,13 @@ void Framebuffer::draw_circle_aa(int h, int v, int r, const Color fg,
 
 // print string
 void Framebuffer::print(int h, int v, const char *s, const Font &font, //
-                        const Color fg, const Color bg, int align)
+                        const Color fg, const Color bg, HAlign align)
 {
-    if (align <= 0) {
+    if (align != HAlign::Left) {
         // right-aligned or centered, back up horizontal position
         uint16_t adjust = font.width(s); // string width in pixels
-        if (align == 0)
-            adjust = adjust / 2; // centered
+        if (align == HAlign::Center)
+            adjust = adjust / 2;
         h -= adjust;
     }
 
@@ -278,7 +279,7 @@ void Framebuffer::print(int h, int v, const char *s, const Font &font, //
 
     while (*s != '\0') {
         char c = *s++;
-        print(h, v, c, font, fg, bg); // align is already taken care of
+        print(h, v, c, font, fg, bg, HAlign::Left); // align already handled
         h += font.width(c);
     }
 }
