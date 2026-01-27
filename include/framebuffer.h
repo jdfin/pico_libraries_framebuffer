@@ -4,6 +4,7 @@
 
 #include "color.h"
 #include "font.h"
+#include "pixel_image.h"
 
 
 class Framebuffer
@@ -109,13 +110,12 @@ public:
     virtual void fill_rect(int h, int v, int wid, int hgt, const Color c);
 
     // write array of pixels to screen
-    // Subclass will interpret what 'pixels' points to (sorry).
-    // It must include at least the size (wid x hgt) and pixel data.
-    virtual void write(int hor, int ver, const void *pixels, //
+    virtual void write(int hor, int ver, const PixelImageHdr *image,
                        HAlign align = HAlign::Left) = 0;
 
-    virtual void write(int hor, int ver, int num, const void **dig_img, //
-                       HAlign align = HAlign::Left,                     //
+    // write number to screen using pre-rendered digit images
+    virtual void write(int hor, int ver, int num, const PixelImageHdr *dig[10],
+                       HAlign align = HAlign::Left, //
                        int *wid = nullptr, int *hgt = nullptr) = 0;
 
     // Bit mask controlling which quadrants get drawn in circle methods:

@@ -429,21 +429,13 @@ void St7796::fill_rect(int hor, int ver, int wid, int hgt, const Color c)
 // pixel data. It cannot be reused or reallocated until the write is finished,
 // which will be some time after this function returns.
 // 'align' controls horizontal alignment: left (default), center, or right.
-void St7796::write(int hor, int ver, const void *image, HAlign align)
+void St7796::write(int hor, int ver, const PixelImageHdr *image, HAlign align)
 {
-    // We don't know the height and width until we look inside 'image'.
-    PixelImageInfo *pi = (PixelImageInfo *)image;
-
-    // Does the image look sane? (check since we're passing void*)
-    assert(pi != nullptr);
-    assert(pi->wid >= 0 && pi->wid <= width()); // I suppose zero is okay?
-    assert(pi->hgt >= 0 && pi->hgt <= height());
-
     // adjust for alignment
     if (align == HAlign::Center)
-        hor -= pi->wid / 2;
+        hor -= image->wid / 2;
     else if (align == HAlign::Right)
-        hor -= pi->wid;
+        hor -= image->wid;
 
     // can't start off the left edge or above the top
     if (hor < 0 || ver < 0)
@@ -451,11 +443,11 @@ void St7796::write(int hor, int ver, const void *image, HAlign align)
 
     // Don't try to go past right edge. Since (hor + wid) is the first pixel
     // after the one we're writing, (hor + wid) == width is okay
-    if ((hor + pi->wid) > width())
+    if ((hor + image->wid) > width())
         return;
 
     // Don't try to go past bottom edge.
-    if ((ver + pi->hgt) > height())
+    if ((ver + image->hgt) > height())
         return;
 
     if (ops_full()) {
@@ -465,7 +457,7 @@ void St7796::write(int hor, int ver, const void *image, HAlign align)
             tight_loop_contents();
     }
 
-    const void *pixels = (Pixel565 *)(pi->pixels);
+    const void *pixels = reinterpret_cast<const PixelImage565 *>(image)->pixels;
 
     // if pixels is in XIP memory (flash), use non-cached access
     if (is_xip(pixels))
@@ -474,8 +466,8 @@ void St7796::write(int hor, int ver, const void *image, HAlign align)
     _ops[_op_free].op = AsyncOp::Copy;
     _ops[_op_free].hor = uint16_t(hor);
     _ops[_op_free].ver = uint16_t(ver);
-    _ops[_op_free].wid = uint16_t(pi->wid);
-    _ops[_op_free].hgt = uint16_t(pi->hgt);
+    _ops[_op_free].wid = uint16_t(image->wid);
+    _ops[_op_free].hgt = uint16_t(image->hgt);
     _ops[_op_free].pixels = pixels;
 
     // _ops[] must be visible in memory (to isr) before updating _op_free
@@ -515,17 +507,14 @@ void St7796::write(int hor, int ver, const void *image, HAlign align)
 // align    Left (default), Center, Right
 // wid, hgt receive the width and height of the rendered number in pixels
 //
-void St7796::write(int hor, int ver, int num, const void **dig_img, //
+void St7796::write(int hor, int ver, int num, const PixelImageHdr *dig[10],
                    HAlign align, int *wid, int *hgt)
 {
     assert(num >= 0);
 
-    const PixelImageInfo **imgs =
-        reinterpret_cast<const PixelImageInfo **>(dig_img);
-
     // extract digits in reverse order
     constexpr int max_digits = 11; // "-2147483648"
-    const PixelImageInfo *num_digits[max_digits];
+    const PixelImageHdr *num_digits[max_digits];
     int ndigits = 0;
     int total_wid = 0;
     do {
@@ -533,8 +522,8 @@ void St7796::write(int hor, int ver, int num, const void **dig_img, //
         num = num / 10;
         assert(d >= 0 && d <= 9);
         assert(ndigits < max_digits);
-        num_digits[ndigits++] = imgs[d];
-        total_wid += imgs[d]->wid;
+        num_digits[ndigits++] = dig[d];
+        total_wid += dig[d]->wid;
     } while (num > 0);
 
     // adjust for alignment
@@ -554,7 +543,7 @@ void St7796::write(int hor, int ver, int num, const void **dig_img, //
         *wid = total_wid;
 
     if (hgt != nullptr)
-        *hgt = imgs[0]->hgt;
+        *hgt = dig[0]->hgt;
 }
 
 

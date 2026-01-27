@@ -64,13 +64,11 @@ public:
                            const Color c) override;
 
     // Write array of pixels to screen.
-    // 'pixels' is a pointer to a PixelImage<Pixel565, wid, hgt>, and we use a
-    // PixelImageInfo to get wid and hgt.
-    virtual void write(int hor, int ver, const void *pixels,
+    virtual void write(int hor, int ver, const PixelImageHdr *image,
                        HAlign align = HAlign::Left) override;
 
-    virtual void write(int hor, int ver, int num, const void **dig_img, //
-                       HAlign align = HAlign::Left,                     //
+    virtual void write(int hor, int ver, int num, const PixelImageHdr *dig[10],
+                       HAlign align = HAlign::Left, //
                        int *wid = nullptr, int *hgt = nullptr) override;
 
     // print character to screen
@@ -102,6 +100,8 @@ private:
 
     // backlight
     int _bk_pin;
+
+    typedef PixelImage<Pixel565, 0, 0> PixelImage565;
 
     uint _dma_ch;
     dma_channel_config _dma_cfg;

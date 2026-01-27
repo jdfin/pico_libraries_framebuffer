@@ -795,19 +795,22 @@ static constexpr Color fg = Color::red();
 static constexpr Color bg = Color::gray(80);
 
 static constexpr PixelImage<Pixel565, wid, hgt> img =
-    label_img<Pixel565, wid, hgt>(ch, font, fg, 0, fg, bg);
+    label_img<Pixel565, wid, hgt>(ch, font, fg, bg, 0);
 
 static void run(Framebuffer &fb)
 {
-    const char *loc = mem_name(&(img.pixels[0]));
+    const char *loc = mem_name(&img);
 
     printf("ImgChar: writing %dw x %dh image from %s at 0x%p (%d bytes)\n",
-           img.width, img.height, loc, &img, sizeof(img.pixels));
+           img.hdr.wid, img.hdr.hgt, loc, &img, sizeof(img.pixels));
+
+    sleep_ms(100);
+    assert(is_xip(&img));
 
     int hor = 10;
     int ver = 10;
 
-    fb.write(hor, ver, &img);
+    fb.write(hor, ver, &img.hdr);
 
     ver += 40;
 
@@ -836,12 +839,15 @@ static void run(Framebuffer &fb)
     const char *loc = mem_name(&img);
 
     printf("ImgString: writing %dw x %dh image from %s at 0x%p (%d bytes)\n",
-           img.width, img.height, loc, &img, sizeof(img.pixels));
+           img.hdr.wid, img.hdr.hgt, loc, &img, sizeof(img.pixels));
+
+    sleep_ms(100);
+    assert(is_xip(&img));
 
     int hor = 10;
     int ver = 10;
 
-    fb.write(hor, ver, &img);
+    fb.write(hor, ver, &img.hdr);
 
     ver += 40;
 
@@ -906,10 +912,9 @@ IMG_LIST
 
 // create the array of button pointers
 // even indices are normal, odd indices are inverted
-#define IMG_MAKE(NUM) \
-    (PixelImageInfo *)&btn_##NUM##_nor, (PixelImageInfo *)&btn_##NUM##_inv,
+#define IMG_MAKE(NUM) &btn_##NUM##_nor.hdr, &btn_##NUM##_inv.hdr,
 
-static const PixelImageInfo *btn_img[60] = {IMG_LIST};
+static const PixelImageHdr *btn_img[60] = {IMG_LIST};
 
 #undef IMG_MAKE
 #undef IMG_LIST
@@ -928,7 +933,7 @@ static void run(Framebuffer &fb)
         for (int c = 0; c < per_row; c++) {
             int btn_num = r * per_row + c;
             assert(0 <= btn_num && btn_num < 30);
-            assert(is_xip(btn_img[btn_num * 2]->pixels));
+            assert(is_xip(btn_img[btn_num * 2]));
             fb.write(hor, ver, btn_img[btn_num * 2]);
             hor += btn_sz;
         }
@@ -1033,28 +1038,31 @@ static void run(Framebuffer &fb)
     int hor;
     int ver = 1;
 
+    assert(is_xip(&l0) && is_xip(&l1) && is_xip(&l2) && //
+           is_xip(&l3u) && is_xip(&l3d));
+
     // draw labels
     hor = 1;
-    fb.write(hor, ver, &l0);
-    printf("Label0: width=%d height=%d\n", l0.width, l0.height);
+    fb.write(hor, ver, (PixelImageHdr *)&l0);
+    printf("Label0: width=%d height=%d\n", l0.hdr.wid, l0.hdr.hgt);
 
-    hor = fb.width() / 2 - l1.width / 2;
-    fb.write(hor, ver, &l1);
-    printf("Label1: width=%d height=%d\n", l1.width, l1.height);
+    hor = fb.width() / 2 - l1.hdr.wid / 2;
+    fb.write(hor, ver, (PixelImageHdr *)&l1);
+    printf("Label1: width=%d height=%d\n", l1.hdr.wid, l1.hdr.hgt);
 
-    hor = fb.width() - l2.width - 1;
-    fb.write(hor, ver, &l2);
-    printf("Label2: width=%d height=%d\n", l2.width, l2.height);
+    hor = fb.width() - l2.hdr.wid - 1;
+    fb.write(hor, ver, (PixelImageHdr *)&l2);
+    printf("Label2: width=%d height=%d\n", l2.hdr.wid, l2.hdr.hgt);
 
     hor = fb.width() / 2 - l3_wid / 2;
     ver = fb.height() / 2 - l3_hgt / 2;
 
-    fb.write(hor, ver, &l3u);
+    fb.write(hor, ver, (PixelImageHdr *)&l3u);
     for (int i = 0; i < 5; i++) {
         sleep_ms(1000);
-        fb.write(hor, ver, &l3d);
+        fb.write(hor, ver, (PixelImageHdr *)&l3d);
         sleep_ms(500);
-        fb.write(hor, ver, &l3u);
+        fb.write(hor, ver, (PixelImageHdr *)&l3u);
     }
 }
 
@@ -1090,9 +1098,9 @@ LBL_LIST
 
 #undef LBL_MAKE
 
-#define LBL_MAKE(Z) (PixelImageInfo *)&img_##Z,
+#define LBL_MAKE(Z) &img_##Z.hdr,
 
-static const PixelImageInfo *lbl_img[] = {LBL_LIST};
+static const PixelImageHdr *lbl_img[] = {LBL_LIST};
 static const int lbl_max = sizeof(lbl_img) / sizeof(lbl_img[0]);
 
 #undef LBL_MAKE
@@ -1107,7 +1115,7 @@ static void run(Framebuffer &fb)
 
     Framebuffer::HAlign align = Framebuffer::HAlign::Left;
     for (int i = 0; i < lbl_max; i++) {
-        const PixelImageInfo *img = lbl_img[i];
+        const PixelImageHdr *img = lbl_img[i];
         assert(is_xip(img));
         if (ver + img->hgt > fb.height()) {
             if (align != Framebuffer::HAlign::Left)
@@ -1170,29 +1178,29 @@ static constexpr PixelImage<Pixel565, wid, hgt> more_inactive =
 static void draw(Framebuffer &fb, int active)
 {
     if (active == 0)
-        fb.write(0 * wid, 0, &home_active);
+        fb.write(0 * wid, 0, (const PixelImageHdr *)&home_active);
     else
-        fb.write(0 * wid, 0, &home_inactive);
+        fb.write(0 * wid, 0, (const PixelImageHdr *)&home_inactive);
 
     if (active == 1)
-        fb.write(1 * wid, 0, &loco_active);
+        fb.write(1 * wid, 0, (const PixelImageHdr *)&loco_active);
     else
-        fb.write(1 * wid, 0, &loco_inactive);
+        fb.write(1 * wid, 0, (const PixelImageHdr *)&loco_inactive);
 
     if (active == 2)
-        fb.write(2 * wid, 0, &func_active);
+        fb.write(2 * wid, 0, (const PixelImageHdr *)&func_active);
     else
-        fb.write(2 * wid, 0, &func_inactive);
+        fb.write(2 * wid, 0, (const PixelImageHdr *)&func_inactive);
 
     if (active == 3)
-        fb.write(3 * wid, 0, &prog_active);
+        fb.write(3 * wid, 0, (const PixelImageHdr *)&prog_active);
     else
-        fb.write(3 * wid, 0, &prog_inactive);
+        fb.write(3 * wid, 0, (const PixelImageHdr *)&prog_inactive);
 
     if (active == 4)
-        fb.write(4 * wid, 0, &more_active);
+        fb.write(4 * wid, 0, (const PixelImageHdr *)&more_active);
     else
-        fb.write(4 * wid, 0, &more_inactive);
+        fb.write(4 * wid, 0, (const PixelImageHdr *)&more_inactive);
 }
 
 } // namespace Nav
@@ -1256,21 +1264,21 @@ static void draw(Framebuffer &fb)
     int ver = 50;
     int hor = marg;
 
-    fb.write(hor, ver, &lights_img);
+    fb.write(hor, ver, (const PixelImageHdr *)&lights_img);
     ver += hgt + marg;
-    fb.write(hor, ver, &engine_img);
+    fb.write(hor, ver, (const PixelImageHdr *)&engine_img);
     ver = 50;
     hor = fb.width() - marg - wid;
-    fb.write(hor, ver, &horn_img);
+    fb.write(hor, ver, (const PixelImageHdr *)&horn_img);
     ver += hgt + marg;
-    fb.write(hor, ver, &bell_img);
+    fb.write(hor, ver, (const PixelImageHdr *)&bell_img);
     ver = fb.height() - marg - hgt;
     hor = marg;
-    fb.write(hor, ver, &rev_img);
+    fb.write(hor, ver, (const PixelImageHdr *)&rev_img);
     hor = fb.width() / 2 - wid / 2;
-    fb.write(hor, ver, &stop_img);
+    fb.write(hor, ver, (const PixelImageHdr *)&stop_img);
     hor = fb.width() - marg - wid;
-    fb.write(hor, ver, &fwd_img);
+    fb.write(hor, ver, (const PixelImageHdr *)&fwd_img);
 }
 
 } // namespace Toots
@@ -1302,11 +1310,11 @@ static void draw(Framebuffer &fb)
 {
     int ver = 180;
     int hor = marg;
-    fb.write(hor, ver, &minus_img);
+    fb.write(hor, ver, (const PixelImageHdr *)&minus_img);
     hor += wid_1 - 1;
-    fb.write(hor, ver, &arrows_img);
+    fb.write(hor, ver, (const PixelImageHdr *)&arrows_img);
     hor += wid_2 - 1;
-    fb.write(hor, ver, &plus_img);
+    fb.write(hor, ver, (const PixelImageHdr *)&plus_img);
 }
 
 } // namespace Slider
@@ -1361,30 +1369,30 @@ static PixelImage<Pixel565, wid, hgt> img;
 
 static void run(Framebuffer &fb)
 {
-    PixelImageInfo *hdr = (PixelImageInfo *)&img;
-
     const char *msgs[] = {"", "0", "00", "000", "0000", "00000"};
+
+    assert(is_ram(&img));
 
     for (int i = 0; i < 6; i++) {
 
         uint32_t t0 = time_us_32();
 
-        label_img<Pixel565>(hdr, msgs[i], font, fg, 0, fg, bg);
+        label_img<Pixel565>(&img.hdr, msgs[i], font, fg, 0, fg, bg);
 
         uint32_t t1 = time_us_32();
 
         printf("ImgUpdate: created %dw x %dh image for \"%s\" in %lu usec\n",
-               img.width, img.height, msgs[i], t1 - t0);
+               img.hdr.wid, img.hdr.hgt, msgs[i], t1 - t0);
 
         printf(
             "ImgUpdate: writing %dw x %dh image for \"%s\" at 0x%p (%d "
             "bytes)\n",
-            img.width, img.height, msgs[i], &img, sizeof(img.pixels));
+            img.hdr.wid, img.hdr.hgt, msgs[i], &img, sizeof(img.pixels));
 
         int hor = 100;
         int ver = 100;
 
-        fb.write(hor, ver, &img);
+        fb.write(hor, ver, &img.hdr);
 
         sleep_ms(1000);
     }
@@ -1429,16 +1437,13 @@ IMG_LIST(font, fg, bg)
 #undef IMG_MAKE
 #undef IMG_LIST
 
-static const PixelImageInfo *digit_img[10] = {
-    (PixelImageInfo *)&img_0, (PixelImageInfo *)&img_1,
-    (PixelImageInfo *)&img_2, (PixelImageInfo *)&img_3,
-    (PixelImageInfo *)&img_4, (PixelImageInfo *)&img_5,
-    (PixelImageInfo *)&img_6, (PixelImageInfo *)&img_7,
-    (PixelImageInfo *)&img_8, (PixelImageInfo *)&img_9,
+static const PixelImageHdr *digit_img[10] = {
+    &img_0.hdr, &img_1.hdr, &img_2.hdr, &img_3.hdr, &img_4.hdr,
+    &img_5.hdr, &img_6.hdr, &img_7.hdr, &img_8.hdr, &img_9.hdr,
 };
 
 // cast to pass to Framebuffer::write()
-static const void **dig_img = reinterpret_cast<const void **>(digit_img);
+//static const void **dig_img = reinterpret_cast<const void **>(digit_img);
 
 
 static void run(Framebuffer &fb)
@@ -1456,7 +1461,7 @@ static void run(Framebuffer &fb)
 
     for (int i = 0; i < nums_max; i++) {
         uint32_t t0 = time_us_32();
-        fb.write(hor, ver, nums[i], dig_img, Framebuffer::HAlign::Center);
+        fb.write(hor, ver, nums[i], digit_img, Framebuffer::HAlign::Center);
         uint32_t t1 = time_us_32();
         // 'line' includes the start and end points
         fb.line(hor, ver - hgt, hor, ver + hgt + hgt - 1, Color::lime());

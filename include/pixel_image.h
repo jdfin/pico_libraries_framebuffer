@@ -22,22 +22,16 @@
 // (for me). If anything is changed in here, make sure the resulting images
 // are still going in flash.
 
-template <typename PIXEL, int wid, int hgt>
-struct PixelImage {
-    int width = wid;
-    int height = hgt;
-    PIXEL pixels[wid * hgt];
-};
-
-// If we have a pointer to a PixelImage, we can use this to see how big it is
-// and where the pixel data starts. To _build_ it we need the templatized one
-// above, but to _use_ it at runtime we just need this.
-struct PixelImageInfo {
+struct PixelImageHdr {
     int wid;
     int hgt;
-    uint8_t pixels[0];
 };
 
+template <typename PIXEL, int w, int h>
+struct PixelImage {
+    PixelImageHdr hdr{w, h};
+    PIXEL pixels[w * h];
+};
 
 // Create a boxed label (string surrounded by outline box).
 //
@@ -200,14 +194,16 @@ label_img(const char text[], const Font font, Color text_clr, //
 //  bgnd_clr    background color
 //
 template <typename PIXEL>
-void label_img(PixelImageInfo *img,                                // image
+void label_img(PixelImageHdr *img,                                 // image
                const char text[], const Font font, Color text_clr, // label
                int bord_thk, Color bord_clr,                       // border
                Color bgnd_clr)                                     // background
 {
-    int wid = img->wid;
-    int hgt = img->hgt;
-    PIXEL *pixels = (PIXEL *)(img->pixels);
+    PixelImage<PIXEL, 0, 0> *pimg =
+        reinterpret_cast<PixelImage<PIXEL, 0, 0> *>(img);
+    int wid = pimg->hdr.wid;
+    int hgt = pimg->hdr.hgt;
+    PIXEL *pixels = pimg->pixels;
 
     // outline and background
     for (int row = 0; row < hgt; row++) {

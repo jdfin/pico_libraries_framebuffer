@@ -80,3 +80,5 @@ private:
         }
     }
 };
+
+static_assert(sizeof(Pixel565) == sizeof(uint16_t), "Pixel565 size incorrect");
