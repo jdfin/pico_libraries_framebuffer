@@ -20,43 +20,12 @@
 #include "pixel_565.h"
 #include "pixel_image.h"
 #include "roboto.h"
-
-// Pico:
 //
-// Signal Pin
-//
-// MISO   21  SPI0_RX (16)
-// CS     22  SPI0_CSn (17)
-//        23  GND
-// SCK    24  SPI0_SCK (18)
-// MOSI   25  SPI0_TX (19)
-// CD     26  GPIO20
-// RST    27  GPIO21
-//        28  GND
-// LED    29  GPIO22
-//        30  RUN
-//        31  GPIO26
-//        32  GPIO27
-//        33  GND
-//        34  GPIO28
-//        35  ADC_VREF
-//        36  3V3_OUT
-//        37  3V3_EN
-//        38  GND
-//        39  VSYS_IN_OUT
-//        40  VBUS_OUT
+#include "fb_gpio_cfg.h"
 
-static const int spi_miso_pin = 16;
-static const int spi_mosi_pin = 19;
-static const int spi_clk_pin = 18;
-static const int spi_cs_pin = 17;
 static const uint32_t spi_baud_request = 15'000'000;
 static uint32_t spi_baud_actual = 0;
 static uint32_t spi_rate_max = 0;
-
-static const int lcd_cd_pin = 20;
-static const int lcd_rst_pin = 21;
-static const int lcd_led_pin = 22;
 
 // Most glyphs of great_vibes_48 extend past the x_adv, so it does not render
 // nicely but it does show that right-side cropping works instead of crashing
@@ -148,13 +117,13 @@ static void help()
 }
 
 
-static void reinit_screen(Framebuffer &lcd)
+static void reinit_screen(Framebuffer &fb)
 {
     // landscape, connector to the left
-    lcd.set_rotation(Framebuffer::Rotation::landscape);
+    fb.set_rotation(Framebuffer::Rotation::landscape);
 
     // fill with black
-    lcd.fill_rect(0, 0, lcd.width(), lcd.height(), Color::black());
+    fb.fill_rect(0, 0, fb.width(), fb.height(), Color::black());
 }
 
 
@@ -180,25 +149,25 @@ int main()
 
     Argv argv(1); // verbosity == 1 means echo
 
-    St7796 lcd(spi0, spi_miso_pin, spi_mosi_pin, spi_clk_pin, spi_cs_pin,
-               spi_baud_request, lcd_cd_pin, lcd_rst_pin, lcd_led_pin, 480, 320,
-               work, work_bytes);
+    St7796 fb(fb_spi_inst, fb_spi_miso_gpio, fb_spi_mosi_gpio, fb_spi_clk_gpio,
+              fb_spi_cs_gpio, spi_baud_request, fb_cd_gpio, fb_rst_gpio,
+              fb_led_gpio, 480, 320, work, work_bytes);
 
-    spi_baud_actual = lcd.spi_freq();
+    spi_baud_actual = fb.spi_freq();
     spi_rate_max = spi_baud_actual / 8;
     printf("spi: requested %lu Hz, got %lu Hz (max %lu bytes/sec)\n", //
            spi_baud_request, spi_baud_actual, spi_rate_max);
 
-    lcd.init();
+    fb.init();
 
     // Turning on the backlight here shows whatever happens to be in RAM
     // (previously displayed or random junk), so we turn it on after filling
     // the screen with something.
 
-    reinit_screen(lcd); // set rotation, fill background
+    reinit_screen(fb); // set rotation, fill background
 
     // Now turn on backlight
-    lcd.brightness(100);
+    fb.brightness(100);
 
     help();
     printf("> ");
@@ -224,8 +193,8 @@ int main()
                     printf("\n");
                     printf("Running \"%s\"\n", tests[test_num].name);
                     printf("\n");
-                    reinit_screen(lcd);
-                    tests[test_num].func(lcd);
+                    reinit_screen(fb);
+                    tests[test_num].func(fb);
                     printf("> ");
                 }
                 argv.reset();
