@@ -160,6 +160,11 @@ public:
                        const Color fg, const Color bg,
                        HAlign align = HAlign::Left);
 
+    virtual void wait_idle()
+    {
+        // default does nothing
+    }
+
 protected:
 
     const int _phys_wid;

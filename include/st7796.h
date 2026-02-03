@@ -76,6 +76,13 @@ public:
                        const Color fg, const Color bg,
                        HAlign align = HAlign::Left) override;
 
+    // Wait for all pending dma operations to complete
+    virtual void wait_idle() override
+    {
+        while (busy())
+            tight_loop_contents();
+    }
+
 private:
 
     spi_inst_t *_spi;
@@ -116,13 +123,6 @@ private:
     void busy(bool bz)
     {
         _dma_running = bz;
-    }
-
-    // Wait for all pending dma operations to complete
-    void wait_idle()
-    {
-        while (busy())
-            tight_loop_contents();
     }
 
     volatile uint16_t _dma_pixel; // isr/dma shared
