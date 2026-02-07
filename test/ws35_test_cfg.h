@@ -29,7 +29,7 @@ constexpr int fb_spi_miso_gpio = 4;
 constexpr int fb_spi_mosi_gpio = 7;
 constexpr int fb_spi_clk_gpio = 6;
 constexpr int fb_spi_cs_gpio = 5;
-spi_inst_t* const fb_spi_inst = spi0;
+spi_inst_t *const fb_spi_inst = spi0;
 
 constexpr int fb_cd_gpio = 8;
 constexpr int fb_rst_gpio = 9;
