@@ -1,5 +1,5 @@
 
-#include "st7796.h"
+#include "ws24.h"
 
 #include <cassert>
 #include <cstdio>
@@ -21,19 +21,17 @@
 #include "pixel_image.h"
 #include "roboto.h"
 //
-#include "fb_gpio_cfg.h"
+#include "ws24_test_cfg.h"
 
-static const uint32_t spi_baud_request = 15'000'000;
-static uint32_t spi_baud_actual = 0;
-static uint32_t spi_rate_max = 0;
+static constexpr int spi_baud_request = 10'000'000;
+static int spi_baud_actual = 0;
+static int spi_rate_max = 0;
 
-// Most glyphs of great_vibes_48 extend past the x_adv, so it does not render
-// nicely but it does show that right-side cropping works instead of crashing
-//static const Font& font = great_vibes_48;
+static constexpr int fb_width = 320;
+static constexpr int fb_height = 240;
+static const Font &font = roboto_24; // height/10
 
-static const Font &font = roboto_32;
-
-static const int work_bytes = 128;
+static constexpr int work_bytes = 128;
 static uint8_t work[work_bytes];
 
 // clang-format off
@@ -144,18 +142,18 @@ int main()
     SysLed::off();
 
     printf("\n");
-    printf("st7796_test\n");
+    printf("ws24_test\n");
     printf("\n");
 
     Argv argv(1); // verbosity == 1 means echo
 
-    St7796 fb(fb_spi_inst, fb_spi_miso_gpio, fb_spi_mosi_gpio, fb_spi_clk_gpio,
-              fb_spi_cs_gpio, spi_baud_request, fb_cd_gpio, fb_rst_gpio,
-              fb_led_gpio, 480, 320, work, work_bytes);
+    Ws24 fb(fb_spi_inst, fb_spi_miso_gpio, fb_spi_mosi_gpio, fb_spi_clk_gpio,
+            fb_spi_cs_gpio, spi_baud_request, fb_cd_gpio, fb_rst_gpio,
+            fb_led_gpio, fb_width, fb_height, work, work_bytes);
 
     spi_baud_actual = fb.spi_freq();
     spi_rate_max = spi_baud_actual / 8;
-    printf("spi: requested %lu Hz, got %lu Hz (max %lu bytes/sec)\n", //
+    printf("spi: requested %d Hz, got %d Hz (max %d bytes/sec)\n", //
            spi_baud_request, spi_baud_actual, spi_rate_max);
 
     fb.init();
@@ -177,26 +175,23 @@ int main()
         if (0 <= c && c <= 255) {
             if (argv.add_char(char(c))) {
                 int test_num = -1;
+                printf("\n");
                 if (argv.argc() != 1) {
-                    printf("\n");
                     printf("One integer only (got %d)\n", argv.argc());
                     help();
                 } else if (!str_to_int(argv[0], &test_num)) {
-                    printf("\n");
                     printf("Invalid test number: \"%s\"\n", argv[0]);
                     help();
                 } else if (test_num < 0 || test_num >= num_tests) {
-                    printf("\n");
                     printf("Test number out of range: %d\n", test_num);
                     help();
                 } else {
-                    printf("\n");
                     printf("Running \"%s\"\n", tests[test_num].name);
                     printf("\n");
                     reinit_screen(fb);
                     tests[test_num].func(fb);
-                    printf("> ");
                 }
+                printf("> ");
                 argv.reset();
             }
         }
@@ -226,19 +221,19 @@ static void rotations(Framebuffer &fb)
     sleep_ms(100);
 
     fb.set_rotation(Framebuffer::Rotation::portrait);
-    mark_origin(fb, "Rotation::portrait", Color::red());
+    mark_origin(fb, "portrait", Color::red());
     sleep_ms(delay_ms);
 
     fb.set_rotation(Framebuffer::Rotation::landscape);
-    mark_origin(fb, "Rotation::landscape", Color::lime());
+    mark_origin(fb, "landscape", Color::lime());
     sleep_ms(delay_ms);
 
     fb.set_rotation(Framebuffer::Rotation::portrait2);
-    mark_origin(fb, "Rotation::portrait2", Color::light_blue());
+    mark_origin(fb, "portrait2", Color::light_blue());
     sleep_ms(delay_ms);
 
     fb.set_rotation(Framebuffer::Rotation::landscape2);
-    mark_origin(fb, "Rotation::landscape2", Color::white());
+    mark_origin(fb, "landscape2", Color::white());
     sleep_ms(delay_ms);
 }
 
@@ -292,17 +287,12 @@ static void hline_1(Framebuffer &fb)
 
 
 // This shows brightness gradations for primary and secondary colors.
-//
-// Visually, it does not look very "linear". Most of the change seems
-// to happen in the bottom half, i.e. brighness 0..127 seems to vary
-// less than brightness 128..255.
-//
 static void colors_1(Framebuffer &fb)
 {
-
-    // landscape, 64 brightness levels, 5 pixels per level
+    // red and blue have 32 brightness levels (5 bits)
+    // green has 64 (6 bits)
+    // landscape, divide vertically into 64 brightness levels
     const int levels = 64;
-    const int hgt_band = fb.height() / levels; // 320/64=5, 480/64=7.5
 
     // red, yellow, green, cyan, blue, magenta, red
     const int wid_band = fb.width() / 7;
@@ -316,20 +306,19 @@ static void colors_1(Framebuffer &fb)
     const int hor_mgt = hor_blu + wid_band;
     const int hor_rd2 = hor_mgt + wid_band;
 
-    for (int level = 0; level < levels; level++) {
-        int ver = level * hgt_band;
+    for (int row = 0; row < fb.height(); row++) {
+        int level = row * levels / fb.height();
         int brt = level * 4;
+        assert(0 <= brt && brt <= 255);
         int brt_pct = brt * 100 / 255;
-        // check:
-        //Color c = Color::red(brt);
-        //printf("level %d: r=%d g=%d b=%d\n", level, int(c.r()), int(c.g()), int(c.b()));
-        fb.fill_rect(hor_red, ver, wid_band, hgt_band, Color::red(brt_pct));
-        fb.fill_rect(hor_yel, ver, wid_band, hgt_band, Color::yellow(brt_pct));
-        fb.fill_rect(hor_grn, ver, wid_band, hgt_band, Color::green(brt_pct));
-        fb.fill_rect(hor_cyn, ver, wid_band, hgt_band, Color::cyan(brt_pct));
-        fb.fill_rect(hor_blu, ver, wid_band, hgt_band, Color::blue(brt_pct));
-        fb.fill_rect(hor_mgt, ver, wid_band, hgt_band, Color::magenta(brt_pct));
-        fb.fill_rect(hor_rd2, ver, wid_band, hgt_band, Color::red(brt_pct));
+        assert(0 <= brt_pct && brt_pct <= 100);
+        fb.fill_rect(hor_red, row, wid_band, 1, Color::red(brt_pct));
+        fb.fill_rect(hor_yel, row, wid_band, 1, Color::yellow(brt_pct));
+        fb.fill_rect(hor_grn, row, wid_band, 1, Color::green(brt_pct));
+        fb.fill_rect(hor_cyn, row, wid_band, 1, Color::cyan(brt_pct));
+        fb.fill_rect(hor_blu, row, wid_band, 1, Color::blue(brt_pct));
+        fb.fill_rect(hor_mgt, row, wid_band, 1, Color::magenta(brt_pct));
+        fb.fill_rect(hor_rd2, row, wid_band, 1, Color::red(brt_pct));
     }
 }
 
@@ -343,35 +332,36 @@ static void colors_1(Framebuffer &fb)
 //
 static void colors_3(Framebuffer &fb)
 {
-    // Landscape mode: 480 wide x 320 high
-    assert(fb.width() == 480 && fb.height() == 320);
-
-    // hue will go 0...359 across the width; center it
-    int col_0 = (fb.width() - 360) / 2;
-
-    // 101 rows for saturation, 101 rows for brightness
-    // Top half: vary saturation (brightness = 100)
-    // Bottom half: vary brightness (saturation = 100)
-
-    const int row_0 = (fb.height() - 202) / 2;
-
-    // Hue sweep: 0-360 degrees across the width
-    for (int hue = 0; hue < 360; hue++) {
-
-        int col = col_0 + hue;
-
-        // Top half: saturation sweep from 0 to 100
-        for (int sat = 0; sat <= 100; sat++) {
-            int row = row_0 + sat;
+    // row=0 -> sat=0, brt=100
+    // row=height/2 -> sat=100, brt=100
+    for (int row = 0; row < fb.height() / 2; row++) {
+        int sat = row * 100 / (fb.height() / 2);
+        for (int col = 0; col < fb.width(); col++) {
+            int hue = col * 360 / fb.width();
             fb.pixel(col, row, Color::hsb(hue, sat, 100));
         }
+    }
 
-        // Bottom half: brightness sweep from 100 to 0
-        for (int brt = 100; brt >= 0; brt--) {
-            // subtracting from 320 instead of 319 leaves a one-pixel (black) gap
-            int row = 320 - row_0 - brt;
+    // row=height/2 -> sat=100, brt=100
+    // row=height -> sat=100, brt=0
+    for (int row = fb.height() / 2; row < fb.height(); row++) {
+        int brt = 100 - (row - fb.height() / 2) * 100 / (fb.height() / 2);
+        for (int col = 0; col < fb.width(); col++) {
+            int hue = col * 360 / fb.width();
             fb.pixel(col, row, Color::hsb(hue, 100, brt));
         }
+    }
+
+    // draw a grid
+    const int grid_rows = 8; // 25% per row
+    const int grid_row_spc = fb.height() / grid_rows;
+    for (int row = grid_row_spc; row < fb.height(); row += grid_row_spc)
+        fb.line(0, row, fb.width() - 1, row, Color::gray());
+    // 60 degrees per column doesn't divide evenly into common screen widths
+    const int grid_cols = 6; // 60 degrees per column
+    for (int col = 1; col < grid_cols; col++) {
+        int c = col * fb.width() / grid_cols;
+        fb.line(c, 0, c, fb.height() - 1, Color::gray());
     }
 }
 
@@ -836,9 +826,8 @@ namespace ImgButton {
 // 20 21 22 23 24 25 26 27 28 29
 
 static constexpr int per_row = 10;
-static constexpr int btn_sz = 480 / per_row;
+static constexpr int btn_sz = fb_width / per_row;
 
-static constexpr Font font = roboto_32;
 static constexpr Color fg = Color::black();
 static constexpr Color bg = Color::white();
 static constexpr int btn_hgt = font.y_adv;
@@ -1105,14 +1094,13 @@ namespace Screen {
 
 static constexpr Color bg = Color::white();
 static constexpr Color fg = Color::black();
-static constexpr int wid = 480;
 
 
 namespace Nav {
 
-static constexpr Font font = roboto_28;
+static constexpr Font font = roboto_20; // ~fb_height/11.5
 static constexpr int hgt = font.y_adv + 2;
-static constexpr int wid = Screen::wid / 5;
+static constexpr int wid = fb_width / 5;
 
 static constexpr char home_txt[] = "HOME";
 static constexpr PixelImage<Pixel565, wid, hgt> home_active =
@@ -1177,7 +1165,7 @@ static void draw(Framebuffer &fb, int active)
 
 namespace Id {
 
-static constexpr Font font = roboto_48;
+static constexpr Font font = roboto_36; // ~fb_height/6.67
 static constexpr int ver = 50;
 static constexpr int hgt = font.y_adv;
 
@@ -1194,11 +1182,11 @@ static void draw(Framebuffer &fb, int num)
 
 namespace Toots {
 
-static constexpr Font font = roboto_34;
-static constexpr int hgtx = 5; // extra height above and below text
+static constexpr Font font = roboto_26; // ~fb_height/9.4
+static constexpr int hgtx = 5;          // extra height above and below text
 static constexpr int hgt = font.y_adv + 2 * hgtx;
 static constexpr int marg = 1; // distance from edges of screen
-static constexpr int wid = Screen::wid / 4;
+static constexpr int wid = fb_width / 4;
 
 static constexpr char lights_str[] = "Lights";
 static constexpr PixelImage<Pixel565, wid, hgt> lights_img =
@@ -1255,15 +1243,15 @@ static void draw(Framebuffer &fb)
 
 namespace Slider {
 
-static constexpr Font font = roboto_34;
-static constexpr int hgtx = 5; // extra height above and below text
+static constexpr Font font = roboto_26; // ~fb_height/9.4
+static constexpr int hgtx = 5;          // extra height above and below text
 static constexpr int hgt = font.y_adv + 2 * hgtx;
-static constexpr int marg = 1; // distance from edges of screen
-static constexpr int wid = Screen::wid - 2 * marg; // overall, |-|slider|+|
-static constexpr int wid_1 = hgt;                  // width of -/+ boxes
-static constexpr int wid_2 = wid - 2 * wid_1 + 2;  // width of slider area
+static constexpr int marg = 1;                  // distance from edges of screen
+static constexpr int wid = fb_width - 2 * marg; // overall, |-|slider|+|
+static constexpr int wid_1 = hgt;               // width of -/+ boxes
+static constexpr int wid_2 = wid - 2 * wid_1 + 2; // width of slider area
 
-static constexpr char arrows_str[] = "<<<<<<<< Speed >>>>>>>>";
+static constexpr char arrows_str[] = "<<<<<< Speed >>>>>>";
 static constexpr PixelImage<Pixel565, wid_2, hgt> arrows_img =
     label_img<Pixel565, wid_2, hgt>(arrows_str, font, fg, 1, fg, bg);
 
@@ -1277,7 +1265,7 @@ static constexpr PixelImage<Pixel565, wid_1, hgt> plus_img =
 
 static void draw(Framebuffer &fb)
 {
-    int ver = 180;
+    int ver = fb_height * 5 / 8;
     int hor = marg;
     fb.write(hor, ver, (const PixelImageHdr *)&minus_img);
     hor += wid_1 - 1;
@@ -1350,13 +1338,13 @@ static void run(Framebuffer &fb)
 
         uint32_t t1 = time_us_32();
 
-        printf("ImgUpdate: created %dw x %dh image for \"%s\" in %lu usec\n",
-               img.hdr.wid, img.hdr.hgt, msgs[i], t1 - t0);
+        printf("ImgUpdate:\n");
+        printf(" created %dw x %dh image for \"%s\" in %lu usec\n", img.hdr.wid,
+               img.hdr.hgt, msgs[i], t1 - t0);
 
-        printf(
-            "ImgUpdate: writing %dw x %dh image for \"%s\" at 0x%p (%d "
-            "bytes)\n",
-            img.hdr.wid, img.hdr.hgt, msgs[i], &img, sizeof(img.pixels));
+        printf("ImgUpdate:\n");
+        printf(" writing %dw x %dh image for \"%s\" at 0x%p (%d bytes)\n",
+               img.hdr.wid, img.hdr.hgt, msgs[i], &img, sizeof(img.pixels));
 
         int hor = 100;
         int ver = 100;

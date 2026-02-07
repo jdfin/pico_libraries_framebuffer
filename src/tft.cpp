@@ -1,30 +1,33 @@
 
 #include <cassert>
-#include <climits>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <utility>
-//
+// pico
 #include "hardware/dma.h"
+#include "hardware/gpio.h"
 #include "hardware/spi.h"
 #include "hardware/sync.h"
 #include "pico/stdlib.h"
-//
-#include "dbg_gpio.h"
-#include "dma_irq_mux.h"
+// framebuffer
+#include "color.h"
 #include "font.h"
+#include "framebuffer.h"
 #include "pixel_565.h"
 #include "pixel_image.h"
+//
+#include "tft.h"
+// misc
+#include "dbg_gpio.h"
+#include "dma_irq_mux.h"
 #include "spi_extra.h"
 #include "util.h"
-//
-#include "st7796.h"
 
 
-St7796::St7796(spi_inst_t *spi, int miso_pin, int mosi_pin, int clk_pin,
-               int cs_pin, int baud, int cd_pin, int rst_pin, int bk_pin,
-               int width, int height, void *work, int work_bytes) :
+Tft::Tft(spi_inst_t *spi, int miso_pin, int mosi_pin, int clk_pin,
+                 int cs_pin, int baud, int cd_pin, int rst_pin, int bk_pin,
+                 int width, int height, void *work, int work_bytes) :
     Framebuffer(width, height),
     _spi(spi),
     _spi_freq(0),
@@ -47,11 +50,11 @@ St7796::St7796(spi_inst_t *spi, int miso_pin, int mosi_pin, int clk_pin,
     _op_next(0),
     _op_free(0)
 {
-    assert(spi != nullptr);
+    assert(_spi != nullptr);
     assert(_miso_pin >= 0 && _mosi_pin >= 0 && _clk_pin >= 0);
     assert(_cd_pin >= 0 && _rst_pin >= 0);
 
-    DbgGpio::init(28);
+    //DbgGpio::init(28);
 
     _spi_freq = spi_init(_spi, _baud);
     gpio_set_function(_miso_pin, GPIO_FUNC_SPI);
@@ -93,87 +96,13 @@ St7796::St7796(spi_inst_t *spi, int miso_pin, int mosi_pin, int clk_pin,
 }
 
 
-St7796::~St7796()
+Tft::~Tft()
 {
     // probably much to do
 }
 
 
-void St7796::init()
-{
-    //printf("St7796::init(): sizeof(_ops[0]) = %zu\n", sizeof(_ops[0]));
-
-    hw_reset();
-
-    // after hw_reset:
-    //   no sleep does not work
-    //   sleeping 1 msec works
-    //   sample code sleeps 200 msec
-    sleep_ms(10);
-
-    // In each uint16_t in cmds[], the hi byte controls what the lo byte means:
-    // high byte == "command", low byte goes out with C/D = command
-    // high byte == "data", low byte goes out with C/D = data
-    // high byte == "delay", low byte is milliseconds to sleep
-
-    // so we don't have to OR-in wr_data in every data byte below
-    assert(wr_data == 0x0000);
-
-    // clang-format off
-    const uint16_t cmds[] = {
-#if 1
-        // Waveshare, from the python code
-        wr_cmd | St7796Cmd::INVON,
-        wr_cmd | St7796Cmd::PWR3, 0x33,
-        wr_cmd | St7796Cmd::VCMPCTL, 0x00, 0x1e, 0x80,
-        wr_cmd | St7796Cmd::FRMCTR1, 0xB0,
-        wr_cmd | St7796Cmd::PGC, 0x00, 0x13, 0x18, 0x04, 0x0F, 0x06, 0x3a, 0x56,
-                      0x4d, 0x03, 0x0a, 0x06, 0x30, 0x3e, 0x0f,
-        wr_cmd | St7796Cmd::NGC, 0x00, 0x13, 0x18, 0x01, 0x11, 0x06, 0x38, 0x34,
-                      0x4d, 0x06, 0x0d, 0x0b, 0x31, 0x37, 0x0f,
-        wr_cmd | St7796Cmd::COLMOD, 0x55,
-        wr_cmd | St7796Cmd::SLPOUT,
-        wr_delay_ms | 120,
-        wr_cmd | St7796Cmd::DISPON,
-        wr_cmd | St7796Cmd::DFC, 0x00, 0x62,
-        wr_cmd | St7796Cmd::MADCTL, madctl(),
-#else
-        // Hosyond 3.5"
-        // After power on: sleep in, normal display, idle off
-        wr_cmd | SLPOUT,
-        // After SLPOUT: wait 5 msec before any new commands
-        wr_delay_ms | 5,
-        // Now we are: sleep out, normal display, idle off
-        // This is where we want to stay.
-        wr_cmd | MADCTL, madctl(),
-        wr_cmd | COLMOD, 0x55,  // 16 bits/pixel
-        wr_cmd | CSCON, 0xc3,   // enable cmd 2 part I
-        wr_cmd | CSCON, 0x96,   // enable cmd 2 part II
-        wr_cmd | DIC, 0x02,     // display inversion control
-        wr_cmd | EM, 0xc6,      // 64k -> 256k color mapping, panel-specific
-        wr_cmd | PWR1, 0xc0, 0x00, // AVDD=6.8, AVCL=-4.4, VGH=12.541, VGL=-7.158
-        wr_cmd | PWR2, 0x13,    // VAP=4.5
-        wr_cmd | PWR3, 0xa7,    // src current low, gamma current high
-        wr_cmd | VCMPCTL, 0x21, // VCOM=0.825
-        wr_cmd | DOCA, 0x40, 0x8a, 0x1b, 0x1b, 0x23, 0x0a, 0xac, 0x33,
-        wr_cmd | PGC, 0xd2, 0x05, 0x08, 0x06, 0x05, 0x02, 0x2a, // pos gamma ctrl
-                      0x44, 0x46, 0x39, 0x15, 0x15, 0x2d, 0x32,
-        wr_cmd | NGC, 0x96, 0x08, 0x0c, 0x09, 0x09, 0x25, 0x2e, // neg gamma ctrl
-                      0x43, 0x42, 0x35, 0x11, 0x11, 0x28, 0x2e,
-        wr_cmd | CSCON, 0x3c,   // disable cmd 2 part I
-        wr_cmd | CSCON, 0x69,   // disable cmd 2 part II
-        wr_cmd | INVON,         // display inversion on
-        wr_cmd | DISPON,        // display on
-#endif
-    };
-    // clang-format on
-    const int cmds_len = sizeof(cmds) / sizeof(cmds[0]);
-
-    write_cmds(cmds, cmds_len); // sets to 8-bit spi
-}
-
-
-void St7796::write_cmds(const uint16_t *b, int b_len)
+void Tft::write_cmds(const uint16_t *b, int b_len)
 {
     assert(b != nullptr && b_len >= 1);
     spi_set_format(_spi, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
@@ -197,77 +126,55 @@ void St7796::write_cmds(const uint16_t *b, int b_len)
 
 
 // pulse hardware reset signal to controller
-void St7796::hw_reset()
+void Tft::hw_reset(int pulse_us)
 {
-    if (_rst_pin >= 0) {
-        gpio_put(_rst_pin, rst_assert);
-        sleep_ms(2);
-        gpio_put(_rst_pin, rst_deassert);
-    }
+    gpio_put(_rst_pin, rst_assert);
+    sleep_us(pulse_us);
+    gpio_put(_rst_pin, rst_deassert);
 }
 
 
 // Allow for pwm backlight some day: 'brightness_pct' is 0%-100% brightness.
 // For now, zero turns it off, nonzero turns it on.
-void St7796::brightness(int brightness_pct)
+void Tft::brightness(int brightness_pct)
 {
-    assert(0 <= brightness_pct && brightness_pct <= 100);
+    if (brightness_pct < 0)
+        brightness_pct = 0;
+    else if (brightness_pct > 100)
+        brightness_pct = 100;
+
     _brightness_pct = brightness_pct;
+
     if (_bk_pin >= 0)
         gpio_put(_bk_pin, brightness_pct > 0);
 }
 
 
-void St7796::set_rotation(Rotation r)
+void Tft::set_rotation(Rotation r)
 {
     Framebuffer::set_rotation(r);
 
     wait_idle(); // wait for any queued dmas to finish
 
     spi_set_format(_spi, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
-    spi_write_command(St7796Cmd::MADCTL);
+    spi_write_command(MADCTL);
     spi_write_data(madctl());
 }
 
 
-// MADCTL: top three bits control orientation and y/row direction
-//   80 MY  row address order
-//   40 MX  column address order
-//   20 MV  row/column exchange
-//   10 ML  vertical refresh order (always 0)
-//   08 RGB RGB-BGR order (always 1)
-//   04 MH  horizontal refresh order (always 0)
-uint8_t St7796::madctl() const
+void Tft::set_window(uint16_t hor, uint16_t ver, uint16_t wid, uint16_t hgt)
 {
-    if (get_rotation() == Rotation::portrait) {
-        return 0x48;
-    } else if (get_rotation() == Rotation::landscape) {
-        return 0xe8;
-    } else if (get_rotation() == Rotation::portrait2) {
-        return 0x88;
-    } else {
-        assert(get_rotation() == Rotation::landscape2);
-        return 0x28;
-    }
-}
-
-
-void St7796::set_window(uint16_t hor, uint16_t ver, uint16_t wid, uint16_t hgt)
-{
-    // Timings with DbgGpio show this takes about 8.5 usec at 12.5 MHz
-    // (theoretical wire time is 6.4 usec).
-
     //DbgGpio d(28);
 
     spi_set_format(_spi, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
 
-    spi_write_command(St7796Cmd::CASET);
+    spi_write_command(CASET);
 
     const uint h2 = hor + wid - 1;
     spi_write_data(uint8_t(hor >> 8), uint8_t(hor), uint8_t(h2 >> 8),
                    uint8_t(h2));
 
-    spi_write_command(St7796Cmd::RASET);
+    spi_write_command(RASET);
 
     const uint v2 = ver + hgt - 1;
     spi_write_data(uint8_t(ver >> 8), uint8_t(ver), uint8_t(v2 >> 8),
@@ -275,32 +182,32 @@ void St7796::set_window(uint16_t hor, uint16_t ver, uint16_t wid, uint16_t hgt)
 }
 
 
-void St7796::pixel(int hor, int ver, const Color c)
+void Tft::pixel(int hor, int ver, const Color c)
 {
     wait_idle();
 
     set_window(hor, ver, 1, 1); // sets to 8-bit spi
-    spi_write_command(St7796Cmd::RAMWR);
+    spi_write_command(RAMWR);
     const Pixel565 p = c; // Pixel565::operator= converts from Color
     spi_write_data(p.value());
 }
 
 
 // line extends right from ('h', 'v') for 'len' pixels
-void St7796::hline(int h, int v, int wid, const Color c)
+void Tft::hline(int h, int v, int wid, const Color c)
 {
     fill_rect(h, v, wid, 1, c);
 }
 
 
 // line extends up or down (positive direction) from ('h', 'v') for 'len' pixels
-void St7796::vline(int h, int v, int hgt, const Color c)
+void Tft::vline(int h, int v, int hgt, const Color c)
 {
     fill_rect(h, v, 1, hgt, c);
 }
 
 
-void St7796::line(int h1, int v1, int h2, int v2, const Color c)
+void Tft::line(int h1, int v1, int h2, int v2, const Color c)
 {
     if (h1 == h2) {
         if (v1 > v2)
@@ -318,7 +225,7 @@ void St7796::line(int h1, int v1, int h2, int v2, const Color c)
 
 // ('hor', 'ver') is the top left pixel
 // 'wid' and 'hgt' are the number of pixels in each direction
-void St7796::draw_rect(int hor, int ver, int wid, int hgt, const Color c)
+void Tft::draw_rect(int hor, int ver, int wid, int hgt, const Color c)
 {
     // no need to paint the corner pixels twice
     hline(hor, ver, wid - 1, c);               // top
@@ -328,7 +235,7 @@ void St7796::draw_rect(int hor, int ver, int wid, int hgt, const Color c)
 }
 
 
-void St7796::dma_handler()
+void Tft::dma_handler()
 {
     spi_wait();
 
@@ -344,7 +251,7 @@ void St7796::dma_handler()
             _dma_pixel = _ops[_op_next].pixel;
             __dmb(); // _dma_pixel must be in memory before starting dma
             set_window(hor, ver, wid, hgt); // sets to 8-bit spi
-            spi_write_command(St7796Cmd::RAMWR);
+            spi_write_command(RAMWR);
             data();
             spi_set_format(_spi, 16, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
             channel_config_set_read_increment(&_dma_cfg, false);
@@ -357,7 +264,7 @@ void St7796::dma_handler()
             const int hgt = _ops[_op_next].hgt;
             const void *pixels = _ops[_op_next].pixels;
             set_window(hor, ver, wid, hgt); // sets to 8-bit spi
-            spi_write_command(St7796Cmd::RAMWR);
+            spi_write_command(RAMWR);
             data();
             spi_set_format(_spi, 16, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
             channel_config_set_read_increment(&_dma_cfg, true);
@@ -373,7 +280,7 @@ void St7796::dma_handler()
 
 // ('hor', 'ver') is the top left pixel
 // 'wid' and 'hgt' are the number of pixels in each direction
-void St7796::fill_rect(int hor, int ver, int wid, int hgt, const Color c)
+void Tft::fill_rect(int hor, int ver, int wid, int hgt, const Color c)
 {
     int h2 = hor + wid - 1;
     if (h2 >= width())
@@ -420,7 +327,7 @@ void St7796::fill_rect(int hor, int ver, int wid, int hgt, const Color c)
 
     restore_interrupts(irq_state);
 
-} // void St7796::fill_rect
+} // void Tft::fill_rect
 
 
 // write array of pixels to screen
@@ -429,7 +336,7 @@ void St7796::fill_rect(int hor, int ver, int wid, int hgt, const Color c)
 // pixel data. It cannot be reused or reallocated until the write is finished,
 // which will be some time after this function returns.
 // 'align' controls horizontal alignment: left (default), center, or right.
-void St7796::write(int hor, int ver, const PixelImageHdr *image, HAlign align)
+void Tft::write(int hor, int ver, const PixelImageHdr *image, HAlign align)
 {
     // adjust for alignment
     if (align == HAlign::Center)
@@ -485,7 +392,7 @@ void St7796::write(int hor, int ver, const PixelImageHdr *image, HAlign align)
 
     restore_interrupts(irq_state);
 
-} // St7796::write
+} // Tft::write
 
 
 // Write a number to the screen as a series of digit images.
@@ -507,8 +414,8 @@ void St7796::write(int hor, int ver, const PixelImageHdr *image, HAlign align)
 // align    Left (default), Center, Right
 // wid, hgt receive the width and height of the rendered number in pixels
 //
-void St7796::write(int hor, int ver, int num, const PixelImageHdr *dig[10],
-                   HAlign align, int *wid, int *hgt)
+void Tft::write(int hor, int ver, int num, const PixelImageHdr *dig[10],
+                    HAlign align, int *wid, int *hgt)
 {
     assert(num >= 0);
 
@@ -563,8 +470,8 @@ void St7796::write(int hor, int ver, int num, const PixelImageHdr *dig[10],
 // rendering of the glyph into _pix_buf. Even if _pix_buf were big enough to
 // hold the entire character, we'd have to wait for the dma to finish before
 // reusing _pix_buf for the next character.
-void St7796::print(int hor, int ver, char c, const Font &font, //
-                   const Color fg, const Color bg, HAlign align)
+void Tft::print(int hor, int ver, char c, const Font &font, //
+                    const Color fg, const Color bg, HAlign align)
 {
     if (!font.printable(c))
         return;
@@ -624,7 +531,7 @@ void St7796::print(int hor, int ver, char c, const Font &font, //
     // Set spi transfer window - all pixels in this window will be filled.
     set_window(hor, ver, font.info[ci].x_adv, font.y_adv); // sets to 8-bit spi
 
-    const uint8_t cmd = St7796Cmd::RAMWR;
+    const uint8_t cmd = RAMWR;
     command();
     spi_write_blocking(_spi, &cmd, 1);
     data();

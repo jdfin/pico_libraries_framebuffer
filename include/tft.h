@@ -2,46 +2,46 @@
 
 #include <cassert>
 #include <cstdint>
-//
+// pico
 #include "hardware/dma.h"
 #include "hardware/gpio.h"
 #include "hardware/spi.h"
 #include "pico/stdlib.h"
-//
+// framebuffer
 #include "color.h"
 #include "font.h"
 #include "framebuffer.h"
 #include "pixel_565.h"
+// misc
 #include "spi_extra.h"
-#include "st7796_cmd.h"
 
 
 // It's not difficult to handle either 8-bit or 16-bit pixel transfers, but
 // the code is simpler if we just always require 16-bit pixel transfers.
-static_assert(Pixel565::xfer_size == 16,
-              "St7796: Pixel565::xfer_size must be 16");
+static_assert(Pixel565::xfer_size == 16, "Tft: Pixel565::xfer_size must be 16");
 
-class St7796 : public Framebuffer
+
+class Tft : public Framebuffer
 {
 
 public:
 
-    // baud normally 15'000'000
-    St7796(spi_inst_t *spi, int miso_pin, int mosi_pin, int clk_pin,  //
-           int cs_pin, int baud, int cd_pin, int rst_pin, int bk_pin, //
-           int width, int height, void *work = nullptr, int work_bytes = 0);
+    Tft(spi_inst_t *spi, int miso_pin, int mosi_pin, int clk_pin, int cs_pin,
+        int baud, int cd_pin, int rst_pin, int bk_pin, int width, int height,
+        void *work = nullptr, int work_bytes = 0);
 
-    virtual ~St7796();
+    virtual ~Tft();
 
-    void init();
+    // reset and initialize
+    virtual void init() = 0;
 
-    void hw_reset();
+    void hw_reset(int pulse_us);
 
     // brightness_pct: 0..100
     // (For now, zero turns it off, nonzero turns it on)
     virtual void brightness(int brightness) override;
 
-    uint32_t spi_freq() const
+    int spi_freq() const
     {
         return _spi_freq;
     }
@@ -83,11 +83,38 @@ public:
             tight_loop_contents();
     }
 
-private:
+protected:
+
+    // command bytes common to many controllers
+    //static constexpr uint8_t SLPOUT = 0x11;
+    //static constexpr uint8_t GAMMASET = 0x26;
+    //static constexpr uint8_t DISPON = 0x29;
+    static constexpr uint8_t CASET = 0x2a;
+    static constexpr uint8_t RASET = 0x2b;
+    static constexpr uint8_t RAMWR = 0x2c;
+    //static constexpr uint8_t RGBSET = 0x2d;
+    static constexpr uint8_t MADCTL = 0x36;
+    //static constexpr uint8_t PIXSET = 0x3a;
+    //static constexpr uint8_t SETTS = 0x44;
+    //static constexpr uint8_t FRMCTL = 0xb1;
+    //static constexpr uint8_t DISPCTL = 0xb6;
+    //static constexpr uint8_t PWRCTL1 = 0xc0;
+    //static constexpr uint8_t PWRCTL2 = 0xc1;
+    //static constexpr uint8_t VCOMCTL1 = 0xc5;
+    //static constexpr uint8_t VCOMCTL2 = 0xc7;
+    //static constexpr uint8_t PWRCTLA = 0xcb;
+    //static constexpr uint8_t PWRCTLB = 0xcf;
+    //static constexpr uint8_t POSGAMMA = 0xe0;
+    //static constexpr uint8_t NEGGAMMA = 0xe1;
+    //static constexpr uint8_t DRVTMGA = 0xe8;
+    //static constexpr uint8_t DRVTGMB = 0xea;
+    //static constexpr uint8_t PWRSEQCTL = 0xed;
+    //static constexpr uint8_t EN3G = 0xf2;
+    //static constexpr uint8_t PMPCTL = 0xf7;
 
     spi_inst_t *_spi;
 
-    uint32_t _spi_freq;
+    int _spi_freq;
 
     // spi pins
     int _miso_pin, _mosi_pin, _clk_pin, _cs_pin;
@@ -137,14 +164,14 @@ private:
     // static handler called by dma_irq_mux.c
     static void dma_raw_handler(void *arg)
     {
-        ((St7796 *)arg)->dma_handler();
+        ((Tft *)arg)->dma_handler();
     }
 
     // instance method called by static handler
     void dma_handler();
 
     // Calculate MADCTL value for current rotation.
-    uint8_t madctl() const;
+    virtual uint8_t madctl() const = 0;
 
     // Working buffer used to render character. Any size is okay, but bigger
     // means fewer transfers. Supplied to constructor.
@@ -162,6 +189,7 @@ private:
     {
         gpio_put(_cd_pin, cd_gpio_data);
     }
+
     void command()
     {
         gpio_put(_cd_pin, cd_gpio_command);
@@ -178,6 +206,8 @@ private:
     static constexpr uint16_t wr_mask = 0xff00;
 
     void write_cmds(const uint16_t *b, int b_len);
+
+    void write(uint8_t cmd, uint8_t *buf, int buf_len);
 
     void set_window(uint16_t hor, uint16_t ver, uint16_t wid, uint16_t hgt);
 

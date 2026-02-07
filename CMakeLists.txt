@@ -2,7 +2,10 @@ add_library(framebuffer INTERFACE)
 
 target_sources(framebuffer INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}/src/framebuffer.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/src/st7796.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/tft.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/ws24.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/ws35.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/hy35.cpp
 )
 
 target_include_directories(framebuffer INTERFACE 
